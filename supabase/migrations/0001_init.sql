@@ -528,8 +528,19 @@ insert into public.settings (team_id) values (null)
   on conflict do nothing;
 
 -- ---------------------------------------------------------------------------
--- 13. First admin bootstrap (edit the email, then this promotes that user).
---     The user must sign up first so the profiles row exists.
+-- 13. Backfill profiles for anyone who signed up BEFORE this migration ran.
+--     (The handle_new_user trigger only fires on new signups, so existing
+--      auth users would otherwise have no profiles row and get bounced to /login.)
+-- ---------------------------------------------------------------------------
+insert into public.profiles (id, email, full_name)
+select u.id, u.email,
+       coalesce(u.raw_user_meta_data->>'full_name', u.raw_user_meta_data->>'name')
+from auth.users u
+where u.email is not null
+on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 14. First admin bootstrap (edit the email to yours).
 -- ---------------------------------------------------------------------------
 update public.profiles set role = 'admin'
   where email = 'c.juarez@globant.com';
