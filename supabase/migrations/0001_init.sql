@@ -148,7 +148,9 @@ create table if not exists public.members (
   profile_id    uuid references public.profiles(id) on delete set null,
   full_name     text not null,
   email         citext,
-  country_code  char(2) not null,
+  -- Nullable: estimation-only members and auto-created ADO assignees may have
+  -- no known country. Members without a country get no public holidays applied.
+  country_code  char(2),
   region_code   text,
   role_id       uuid references public.roles(id) on delete set null,
   seniority_id  uuid references public.seniorities(id) on delete set null,

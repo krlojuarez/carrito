@@ -50,7 +50,7 @@ export function memberToEngine(m: DbMember, settings: DbSettings | null): Capaci
     id: m.id,
     displayName: m.full_name,
     active: m.is_active,
-    country: m.country_code,
+    country: m.country_code || undefined,
     region: m.region_code || undefined,
     startDate: m.start_date || undefined,
     endDate: m.end_date || undefined,

@@ -34,7 +34,7 @@ export interface Member {
   profile_id: UUID | null;
   full_name: string;
   email: string | null;
-  country_code: string;
+  country_code: string | null;
   region_code: string | null;
   role_id: UUID | null;
   seniority_id: UUID | null;

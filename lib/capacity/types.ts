@@ -36,7 +36,8 @@ export interface CapacityMember {
   id: string;
   displayName: string;
   active: boolean;
-  country: string;
+  /** date-holidays country code. Undefined = no public holidays applied. */
+  country?: string;
   state?: string;
   region?: string;
   startDate?: LocalDate;

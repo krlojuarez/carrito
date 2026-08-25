@@ -41,7 +41,7 @@ export default async function BacklogImportPage() {
       teamId={team.id}
       teamName={team.name}
       sprints={sprints.map((s) => ({ id: s.id, name: s.name }))}
-      members={members.map((m) => ({ id: m.id, email: m.email }))}
+      members={members.map((m) => ({ id: m.id, email: m.email, full_name: m.full_name }))}
       defaultSprintLengthDays={settings?.default_sprint_length_days ?? 14}
     />
   );

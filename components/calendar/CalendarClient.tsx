@@ -32,7 +32,7 @@ import type { Holiday, Pto, PtoType } from '@/lib/types/domain';
 
 const { Text } = Typography;
 
-type MemberLite = { id: string; full_name: string; country_code: string };
+type MemberLite = { id: string; full_name: string; country_code: string | null };
 
 const PTO_TYPES: { label: string; value: PtoType }[] = [
   { label: 'Vacation', value: 'vacation' },
@@ -99,7 +99,7 @@ export default function CalendarClient({
   const publicHolidaysByDay = useMemo(() => {
     const map = new Map<string, DayItem[]>();
     const countries = Array.from(
-      new Set(members.map((m) => m.country_code).filter(Boolean)),
+      new Set(members.map((m) => m.country_code).filter((c): c is string => !!c)),
     );
     const years = Array.from(
       new Set([panelDate.year() - 1, panelDate.year(), panelDate.year() + 1]),

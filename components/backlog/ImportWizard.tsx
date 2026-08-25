@@ -39,7 +39,7 @@ import { createClient } from '@/lib/supabase/client';
 import { FIELD_DEFS, type CarritoField, type ColumnMapping } from '@/lib/ado/fields';
 import { autoMap, parseCsv, transformRows, type RowError, type StoryImportRow } from '@/lib/ado/parse';
 import { downloadCsv, errorsToCsv } from '@/lib/ado/export';
-import { createImportBatch, upsertStories } from '@/lib/ado/upsert';
+import { createImportBatch, resolveAndCreateAssignees, upsertStories } from '@/lib/ado/upsert';
 
 const { Text, Paragraph } = Typography;
 const { Dragger } = Upload;
@@ -48,12 +48,13 @@ const { RangePicker } = DatePicker;
 const REQUIRED_FIELDS: CarritoField[] = FIELD_DEFS.filter((f) => f.required).map((f) => f.field);
 
 type SprintLite = { id: string; name: string };
-type MemberLite = { id: string; email: string | null };
+type MemberLite = { id: string; email: string | null; full_name: string };
 
 interface ImportOutcome {
   total: number;
   chunks: number;
   sprintId: string;
+  membersCreated: number;
 }
 
 export default function ImportWizard({
@@ -87,6 +88,9 @@ export default function ImportWizard({
   const [existingSprintId, setExistingSprintId] = useState<string | undefined>(sprints[0]?.id);
   const [newSprintName, setNewSprintName] = useState('');
   const [newSprintRange, setNewSprintRange] = useState<[Dayjs, Dayjs] | null>(null);
+
+  // Auto-create members for unknown assignees
+  const [autoCreateMembers, setAutoCreateMembers] = useState(true);
 
   // Step 5: import
   const [importing, setImporting] = useState(false);
@@ -192,11 +196,14 @@ export default function ImportWizard({
 
       if (!sprintId) throw new Error('No target sprint resolved.');
 
-      const memberByEmail = new Map(
-        members
-          .filter((m): m is MemberLite & { email: string } => !!m.email)
-          .map((m) => [m.email.toLowerCase(), m.id]),
-      );
+      // Resolve assignees to members (by email or name); optionally auto-create
+      // members for assignees not yet on the team.
+      const resolution = await resolveAndCreateAssignees(supabase, {
+        teamId,
+        rows: review.rows,
+        existing: members,
+        autoCreate: autoCreateMembers,
+      });
 
       const batchId = await createImportBatch(supabase, {
         teamId,
@@ -211,12 +218,21 @@ export default function ImportWizard({
         sprintId,
         batchId,
         rows: review.rows,
-        memberByEmail,
+        lookup: { byEmail: resolution.byEmail, byName: resolution.byName },
       });
 
-      setOutcome({ total: res.total, chunks: res.chunks, sprintId });
+      setOutcome({
+        total: res.total,
+        chunks: res.chunks,
+        sprintId,
+        membersCreated: resolution.createdCount,
+      });
       setStep(4);
-      message.success(`Imported ${res.total} stories`);
+      message.success(
+        resolution.createdCount
+          ? `Imported ${res.total} stories · added ${resolution.createdCount} member${resolution.createdCount === 1 ? '' : 's'}`
+          : `Imported ${res.total} stories`,
+      );
       router.refresh();
     } catch (e) {
       message.error(e instanceof Error ? e.message : 'Import failed');
@@ -417,6 +433,21 @@ export default function ImportWizard({
           ) : (
             <Empty description="No sprints yet — turn on “Create a new sprint” above." />
           )}
+
+          <Divider />
+          <Space align="start">
+            <Switch checked={autoCreateMembers} onChange={setAutoCreateMembers} />
+            <div>
+              <Text strong>Add unknown assignees as team members</Text>
+              <div>
+                <Text type="secondary">
+                  When a story&rsquo;s assignee isn&rsquo;t on the team yet, create a member for them
+                  (no country/email required) and link the story. You can fill in their details later
+                  in Admin → Team.
+                </Text>
+              </div>
+            </div>
+          </Space>
         </Card>
       )}
 
@@ -504,7 +535,11 @@ export default function ImportWizard({
           <Result
             status="success"
             title={`Imported ${outcome.total} stories`}
-            subTitle={`Processed in ${outcome.chunks} ${outcome.chunks === 1 ? 'batch' : 'batches'}.`}
+            subTitle={
+              outcome.membersCreated
+                ? `Added ${outcome.membersCreated} new member${outcome.membersCreated === 1 ? '' : 's'} from assignees. Set their country/role in Admin → Team.`
+                : `Processed in ${outcome.chunks} ${outcome.chunks === 1 ? 'batch' : 'batches'}.`
+            }
             extra={[
               <Link key="view" href={`/backlog?sprint=${outcome.sprintId}`}>
                 <Button type="primary">View backlog</Button>

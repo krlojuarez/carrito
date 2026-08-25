@@ -33,7 +33,7 @@ const { RangePicker } = DatePicker;
 interface MemberFormValues {
   full_name: string;
   email?: string;
-  country_code: string;
+  country_code?: string;
   region_code?: string;
   role_id?: string;
   seniority_id?: string;
@@ -95,7 +95,7 @@ export default function TeamClient({
     memberForm.setFieldsValue({
       full_name: m.full_name,
       email: m.email ?? undefined,
-      country_code: m.country_code,
+      country_code: m.country_code ?? undefined,
       region_code: m.region_code ?? undefined,
       role_id: m.role_id ?? undefined,
       seniority_id: m.seniority_id ?? undefined,
@@ -120,7 +120,7 @@ export default function TeamClient({
       team_id: team.id,
       full_name: values.full_name,
       email: values.email ?? null,
-      country_code: values.country_code,
+      country_code: values.country_code ?? null,
       region_code: values.region_code ?? null,
       role_id: values.role_id ?? null,
       seniority_id: values.seniority_id ?? null,
@@ -195,7 +195,7 @@ export default function TeamClient({
       title: 'Country',
       dataIndex: 'country_code',
       key: 'country_code',
-      render: (v: string) => countryName(v),
+      render: (v: string | null) => (v ? countryName(v) : '—'),
     },
     {
       title: 'Role',
@@ -287,11 +287,16 @@ export default function TeamClient({
           <Form.Item name="email" label="Email" rules={[{ type: 'email' }]}>
             <Input placeholder="jane@company.com" />
           </Form.Item>
-          <Form.Item name="country_code" label="Country" rules={[{ required: true }]}>
+          <Form.Item
+            name="country_code"
+            label="Country"
+            tooltip="Optional. Recommended so the member's public holidays reduce capacity accurately."
+          >
             <Select
               showSearch
+              allowClear
               optionFilterProp="label"
-              placeholder="Select country"
+              placeholder="Select country (optional)"
               options={COUNTRIES.map((c) => ({ value: c.code, label: c.name }))}
             />
           </Form.Item>

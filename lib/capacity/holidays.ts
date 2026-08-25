@@ -9,6 +9,9 @@ export function publicHolidayMap(
   m: Pick<CapacityMember, 'country' | 'state' | 'region'>,
   years: number[],
 ): Map<LocalDate, CapacityHoliday> {
+  // No country -> no public holidays (member still gets weekends + PTO).
+  if (!m.country) return new Map<LocalDate, CapacityHoliday>();
+
   const key = `${m.country}|${m.state ?? ''}|${m.region ?? ''}|${years.join(',')}`;
   const hit = cache.get(key);
   if (hit) return hit;
