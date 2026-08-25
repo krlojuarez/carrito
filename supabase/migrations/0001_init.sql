@@ -11,6 +11,11 @@ create extension if not exists "pgcrypto";
 create extension if not exists "citext";
 create extension if not exists "btree_gist";
 
+-- Allow forward references in function bodies (is_admin() references profiles,
+-- which is created a few sections below). The function only runs at query time,
+-- by which point every table exists. Applies for this script's session.
+set check_function_bodies = off;
+
 -- ---------------------------------------------------------------------------
 -- 1. Enums (guarded so re-runs don't fail)
 -- ---------------------------------------------------------------------------
