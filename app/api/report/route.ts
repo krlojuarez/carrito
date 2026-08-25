@@ -34,8 +34,23 @@ export async function POST(request: Request) {
     aggregates = allAggregates;
   }
 
-  const doc = buildReport({ branding, aggregates, generatedAt });
-  const buffer = await renderToBuffer(doc);
+  let buffer: Buffer;
+  try {
+    buffer = await renderToBuffer(buildReport({ branding, aggregates, generatedAt }));
+  } catch {
+    // A bad/unreachable logo URL can make react-pdf reject. Retry without the logo
+    // so the export degrades gracefully instead of 500ing the whole request.
+    try {
+      buffer = await renderToBuffer(
+        buildReport({ branding: { ...branding, logoUrl: null }, aggregates, generatedAt }),
+      );
+    } catch (e) {
+      return new Response(
+        JSON.stringify({ error: e instanceof Error ? e.message : 'PDF generation failed' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+  }
 
   return new Response(new Uint8Array(buffer), {
     headers: {

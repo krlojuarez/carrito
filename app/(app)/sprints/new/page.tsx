@@ -3,11 +3,31 @@ import { Button, Card, Empty } from 'antd';
 import PageHeader from '@/components/common/PageHeader';
 import SprintFormClient from '@/components/sprints/SprintFormClient';
 import { getPrimaryTeam, getSettings } from '@/lib/data/queries';
+import { getProfile } from '@/lib/auth/getProfile';
 
 export const dynamic = 'force-dynamic';
 
 export default async function NewSprintPage() {
-  const [team, settings] = await Promise.all([getPrimaryTeam(), getSettings()]);
+  const [team, settings, profile] = await Promise.all([
+    getPrimaryTeam(),
+    getSettings(),
+    getProfile(),
+  ]);
+
+  if (profile?.role !== 'admin') {
+    return (
+      <>
+        <PageHeader title="New sprint" subtitle="Create a sprint" />
+        <Card>
+          <Empty description="Only admins can create sprints.">
+            <Link href="/sprints">
+              <Button type="primary">Back to sprints</Button>
+            </Link>
+          </Empty>
+        </Card>
+      </>
+    );
+  }
 
   if (!team) {
     return (

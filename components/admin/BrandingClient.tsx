@@ -48,7 +48,7 @@ export default function BrandingClient({ settings }: { settings: Settings | null
   );
   const [logoUrl, setLogoUrl] = useState<string | null>(settings?.logo_url ?? null);
 
-  async function handleUpload(file: RcFile): Promise<boolean> {
+  async function handleUpload(file: RcFile): Promise<void> {
     setUploading(true);
     const supabase = createClient();
     try {
@@ -66,7 +66,6 @@ export default function BrandingClient({ settings }: { settings: Settings | null
     } finally {
       setUploading(false);
     }
-    return false; // prevent antd's default upload
   }
 
   async function onSave() {
@@ -150,7 +149,10 @@ export default function BrandingClient({ settings }: { settings: Settings | null
                   accept="image/*"
                   maxCount={1}
                   showUploadList={false}
-                  beforeUpload={(file) => handleUpload(file as RcFile)}
+                  beforeUpload={(file) => {
+                    void handleUpload(file as RcFile);
+                    return false; // synchronous false prevents antd's default XHR upload
+                  }}
                 >
                   <Button icon={<UploadOutlined />} loading={uploading}>
                     Upload logo
