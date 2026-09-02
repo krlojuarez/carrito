@@ -396,6 +396,7 @@ select
   s.name          as sprint_name,
   s.start_date,
   s.end_date,
+  s.is_closed,
   m.id            as member_id,
   m.full_name     as member_name,
   m.country_code,
@@ -435,6 +436,15 @@ comment on view public.v_member_sprint_capacity is
 -- ---------------------------------------------------------------------------
 -- 10. v_member_capacity_profile — Capacity!E and Capacity!F. Feeds chart 2
 --     ("AVG Capacity per day" by Developer/Admin).
+--
+--     Only FINISHED sprints are measured. An in-flight sprint has partial
+--     "completed" points, and averaging it in would drag every member's rate
+--     down for as long as the sprint is open.
+--
+--     Note the workbook's own version of this number, =AVERAGE(K,P,V,AC), reads
+--     four sprint columns but the last two were never filled in on any row —
+--     AVERAGE silently ignores the blanks, so it measures only the first two
+--     sprints. This view uses every finished sprint.
 -- ---------------------------------------------------------------------------
 create view public.v_member_capacity_profile as
 select
@@ -455,6 +465,7 @@ select
   sum(c.completed_points)                                   as completed_points_total,
   sum(c.committed_points)                                   as committed_points_total
 from public.v_member_sprint_capacity c
+where c.is_closed or c.end_date < current_date
 group by c.team_id, c.member_id, c.member_name, c.country_code, c.capacity_factor;
 
 alter view public.v_member_capacity_profile set (security_invoker = on);

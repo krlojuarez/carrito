@@ -264,6 +264,26 @@ sprints and comparing every cell:
 | `Capacity` sheet — Holidays / PTO / Working Days | **exact match**, 33 of 33 member×sprint cells |
 | `Capacity` sheet — hand-typed **Completed** | **8 of 33 cells disagreed** with the story rows they claim to summarise (individual errors up to ±6 SP) |
 | `Velocity!M` Workday % | The formulas on the Sprint 16 and Sprint 17 rows read the **next** sprint's column block (`SUM(Capacity!S…)` and `SUM(Capacity!Y…)` instead of `N` and `S`), so both rows report another sprint's number |
+| `Capacity!E` Capacity per day | Every row reads `AVERAGE(K,P,V,AC)` — four sprints — but the `V` and `AC` cells were never filled in, on any of the 11 rows. `AVERAGE` ignores blanks, so the per-member capacity behind chart 2 comes from Sprints 15–16 only and silently drops the two most recent sprints. Measured across the three completed sprints instead, it **understates team capacity by 37%** (individual members by up to +143%) |
 
-The first two lines are why the migration can be trusted; the last two are why the
-spreadsheet should be retired.
+The first two lines are why the migration can be trusted; the last three are why the
+spreadsheet should be retired. None of the three defects is a typo a reviewer would catch by
+looking at the chart — each one produces a plausible-looking number that is simply about the
+wrong thing.
+
+### `Capacity!E`, member by member
+
+| Member | Sheet `Capacity!E` (S15–16 only) | `v_member_capacity_profile` (all finished sprints) | Change |
+|---|---|---|---|
+| Ataul Khalique | 0.417 | 1.011 | +143% |
+| Tomas Olivera | 0.267 | 0.548 | +106% |
+| Ignacio Toledo | 0.644 | 1.163 | +80% |
+| Apala Sen | 0.761 | 1.315 | +73% |
+| Victor Cabrera | 0.400 | 0.667 | +67% |
+| Carlos Juarez | 0.800 | 1.256 | +57% |
+| Sebastian Perez | 0.967 | 1.078 | +11% |
+| Manish Raj | 1.389 | 1.474 | +6% |
+| Mahika Agrawal | 0.872 | 0.781 | −10% |
+| Jacobo Salazar | 0.889 | 0.556 | −37% |
+| Santiago Epalza | 0.000 | 0.296 | from zero |
+| **Team total** | **7.41** | **10.14** | **+37%** |
