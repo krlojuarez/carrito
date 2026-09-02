@@ -257,7 +257,10 @@ language sql stable as $$
     select b.d
     from m
     cross join public.business_days(p_start, p_end) b(d)
-    where m.is_active
+    -- Someone who has left is still part of the sprints they worked. Their
+    -- end_date bounds the days below, so history stays fixed; only a member
+    -- deactivated WITHOUT an end date (i.e. never really on the team) drops out.
+    where (m.is_active or m.end_date is not null)
       and (m.start_date is null or b.d >= m.start_date)
       and (m.end_date   is null or b.d <= m.end_date)
   ),
@@ -416,7 +419,12 @@ select
 from public.sprints s
 join public.members m
   on m.team_id = s.team_id
- and m.is_active
+ -- Departed members keep their place in the sprints they worked; see
+ -- member_sprint_days(). Deactivating someone must not rewrite past velocity.
+ and (m.is_active or m.end_date is not null)
+-- One call per member per sprint. Team-sized data (tens of members, tens of
+-- sprints) is a few hundred calls; fine. If a team ever outgrows that, this is
+-- the view to materialise.
 cross join lateral public.member_sprint_days(m.id, s.start_date, s.end_date) d
 left join lateral (
   select

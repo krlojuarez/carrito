@@ -16,7 +16,13 @@
 --        -> gross 10, holidays 1, pto 0, net 9
 --   M2  no country (so no public holidays), 2 days PTO (Mar 5-6).
 --        -> gross 10, holidays 0, pto 2, net 8
---   team totals: gross 20, net 17  -> workday_pct = 17/20 = 0.85
+--   M3  LEFT the team mid-sprint: is_active = false, end_date = Fri 2026-03-06.
+--       Departing must not erase the days they worked.
+--        -> gross 5 (Mar 2-6), holidays 0, pto 0, net 5
+--   M4  is_active = false with NO end date — someone who was never really on
+--       the team. Contributes nothing.
+--        -> gross 0
+--   team totals: gross 25, net 22  -> workday_pct = 22/25 = 0.88
 --
 --   S1 created before the sprint,  5 pts, Done,        carry 0
 --   S2 created DURING the sprint,  3 pts, Done,        carry 0   (scope creep)
@@ -44,6 +50,8 @@ declare
   v_sprint  uuid := gen_random_uuid();
   v_m1      uuid := gen_random_uuid();
   v_m2      uuid := gen_random_uuid();
+  v_m3      uuid := gen_random_uuid();
+  v_m4      uuid := gen_random_uuid();
   r         record;
   d         record;
 begin
@@ -54,9 +62,11 @@ begin
 
   insert into public.teams (id, name) values (v_team, 'test-team-' || v_team);
 
-  insert into public.members (id, team_id, full_name, country_code, is_active)
-  values (v_m1, v_team, 'Member One', 'ZZ', true),
-         (v_m2, v_team, 'Member Two', null, true);
+  insert into public.members (id, team_id, full_name, country_code, is_active, end_date)
+  values (v_m1, v_team, 'Member One',   'ZZ', true,  null),
+         (v_m2, v_team, 'Member Two',   null, true,  null),
+         (v_m3, v_team, 'Member Three', null, false, date '2026-03-06'),
+         (v_m4, v_team, 'Member Four',  null, false, null);
 
   insert into public.sprints (id, team_id, name, start_date, end_date)
   values (v_sprint, v_team, 'Sprint A', date '2026-03-02', date '2026-03-13');
@@ -94,6 +104,15 @@ begin
   assert d.pto_days     = 2,  format('M2 pto_days: expected 2, got %s', d.pto_days);
   assert d.net_days     = 8,  format('M2 net_days: expected 8, got %s', d.net_days);
 
+  -- A member who left keeps the days they worked...
+  select * into d from public.member_sprint_days(v_m3, date '2026-03-02', date '2026-03-13');
+  assert d.gross_days = 5, format('M3 gross_days: expected 5 (left on Mar 6), got %s', d.gross_days);
+  assert d.net_days   = 5, format('M3 net_days: expected 5, got %s', d.net_days);
+
+  -- ...but a member deactivated with no end date contributes nothing.
+  select * into d from public.member_sprint_days(v_m4, date '2026-03-02', date '2026-03-13');
+  assert d.gross_days = 0, format('M4 gross_days: expected 0, got %s', d.gross_days);
+
   -- ---- v_sprint_velocity: the Velocity sheet ------------------------------
   select * into r from public.v_sprint_velocity where sprint_id = v_sprint;
   assert r.committed_points   = 19, format('committed_points: expected 19, got %s', r.committed_points);
@@ -112,10 +131,10 @@ begin
     format('done_pct: expected %s, got %s', round(11.0/19,4), round(r.done_pct,4));
   assert round(r.carry_over_pct, 4) = round(8.0/19, 4),
     format('carry_over_pct: expected %s, got %s', round(8.0/19,4), round(r.carry_over_pct,4));
-  assert r.gross_working_days = 20, format('gross_working_days: expected 20, got %s', r.gross_working_days);
-  assert r.net_working_days   = 17, format('net_working_days: expected 17, got %s', r.net_working_days);
-  assert round(r.workday_pct, 4) = 0.85,
-    format('workday_pct: expected 0.85, got %s', round(r.workday_pct, 4));
+  assert r.gross_working_days = 25, format('gross_working_days: expected 25, got %s', r.gross_working_days);
+  assert r.net_working_days   = 22, format('net_working_days: expected 22, got %s', r.net_working_days);
+  assert round(r.workday_pct, 4) = 0.88,
+    format('workday_pct: expected 0.88, got %s', round(r.workday_pct, 4));
   -- Only one sprint on this team, so the running average equals this sprint's Done.
   assert r.velocity_avg_points = 11,
     format('velocity_avg_points: expected 11, got %s', r.velocity_avg_points);
