@@ -10,6 +10,7 @@ import {
   BarChartOutlined,
   CalendarOutlined,
   DashboardOutlined,
+  LineChartOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -36,6 +37,7 @@ const NAV: NavItem[] = [
   { key: '/sprints', href: '/sprints', label: 'Sprints', icon: <AppstoreOutlined /> },
   { key: '/backlog', href: '/backlog', label: 'Backlog', icon: <ApartmentOutlined /> },
   { key: '/calendar', href: '/calendar', label: 'Calendar & PTO', icon: <CalendarOutlined /> },
+  { key: '/metrics', href: '/metrics', label: 'Scrum Metrics', icon: <LineChartOutlined /> },
   { key: '/reports', href: '/reports', label: 'Reports', icon: <BarChartOutlined /> },
   { key: '/admin', href: '/admin/team', label: 'Admin', icon: <SettingOutlined />, adminOnly: true },
 ];

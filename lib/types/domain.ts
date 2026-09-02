@@ -39,6 +39,8 @@ export interface Member {
   role_id: UUID | null;
   seniority_id: UUID | null;
   hours_per_day: number;
+  /** FTE factor — 1 = full time, 0.5 = half time (workbook Capacity!B). */
+  capacity_factor: number;
   focus_factor: number | null;
   points_per_day: number | null;
   min_capacity_days: number | null;
@@ -65,7 +67,8 @@ export interface Sprint {
 
 export interface Holiday {
   id: UUID;
-  country_code: string;
+  /** null = company-wide (applies to every member, whatever their country). */
+  country_code: string | null;
   region_code: string | null;
   holiday_date: ISODate;
   name: string;

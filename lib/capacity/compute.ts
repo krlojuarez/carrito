@@ -107,14 +107,27 @@ export function computeSprintCapacity(args: {
   };
   const years = yearsInRange(sprint.start_date, sprint.end_date);
 
-  const manualForAll: CapacityHoliday[] = manualHolidays
-    .filter((h) => h.is_manual)
-    .map((h) => ({ date: h.holiday_date, name: h.name, source: 'team' as const }));
-
   const engineMembers = members.map((m) => memberToEngine(m, settings));
 
+  /**
+   * Manual holidays scoped the same way public.member_sprint_days() scopes them:
+   * no country means company-wide, a country means only that country's members,
+   * a region means only members explicitly in that region. Applying every manual
+   * row to everybody (the previous behaviour) meant one country's company day
+   * removed a working day from the whole distributed team.
+   */
+  const manualFor = (em: CapacityMember): CapacityHoliday[] =>
+    manualHolidays
+      .filter((h) => h.is_manual)
+      .filter((h) => !h.country_code || (!!em.country && h.country_code === em.country))
+      .filter((h) => !h.region_code || h.region_code === em.region)
+      .map((h) => ({ date: h.holiday_date, name: h.name, source: 'team' as const }));
+
   const holidaysFor = (em: CapacityMember) =>
-    mergeHolidays(publicHolidayMap({ country: em.country, state: em.state, region: em.region }, years), manualForAll);
+    mergeHolidays(
+      publicHolidayMap({ country: em.country, state: em.state, region: em.region }, years),
+      manualFor(em),
+    );
   const ptoFor = (em: CapacityMember) => ptoMapForMember(em.id, ptos, sprint.start_date, sprint.end_date);
 
   const team = computeTeamCapacity(engineMembers, engineSprint, params, holidaysFor, ptoFor);

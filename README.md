@@ -44,14 +44,27 @@ npm run dev
 
 ## Database
 
-Run the migration once in **Supabase → SQL Editor**:
+Run the migrations once, in order, in **Supabase → SQL Editor**:
 
 ```
 supabase/migrations/0001_init.sql
+supabase/migrations/0002_optional_country.sql
+supabase/migrations/0003_scrum_metrics.sql
 ```
 
-It creates all tables, row‑level‑security policies, triggers (carry‑over detection, updated_at),
-a public `branding` storage bucket, and seed data (default roles, seniorities, settings).
+`0001` creates all tables, row‑level‑security policies, triggers (carry‑over detection,
+updated_at), a public `branding` storage bucket, and seed data (default roles, seniorities,
+settings). `0002` makes `members.country_code` optional. `0003` adds the Scrum Metrics model —
+scope‑creep and carry‑over columns, the velocity/capacity views, and the sprint‑close automation.
+All three are idempotent.
+
+Verify the metrics model with:
+
+```
+supabase/tests/scrum_metrics_test.sql
+```
+
+It asserts every metric against a fixture with hand‑computed expectations and rolls back.
 
 ### Bootstrap the first admin
 
@@ -77,11 +90,29 @@ Admins can then manage the team, parameters, and branding from the **Admin** sec
 app/                 App Router routes (auth, dashboard, sprints, backlog, calendar, reports, admin)
 components/           UI components (layout shell, charts, feature clients)
 lib/
-  capacity/          Pure capacity engine + DB orchestration
+  capacity/          Pure capacity engine, holiday sync + DB orchestration
+  metrics/           Types mirroring the Scrum Metrics SQL views
   ado/               ADO CSV parse / export / upsert
   data/              Server data queries & aggregation
   supabase/          Browser/server clients + middleware
   auth/              Profile + role guards
   pdf/               Branded PDF report
 supabase/migrations/ SQL schema + RLS
+supabase/tests/      SQL regression tests
+docs/                Scrum Metrics reference (workbook -> SQL mapping, queries)
 ```
+
+## Replacing the Scrum Metrics spreadsheet
+
+`docs/scrum-metrics.md` maps every cell of the workbook onto a view or column, gives
+copy‑paste SQL for each sheet and both charts, and lists what is now automated versus what
+still needs a person. Two things it is worth knowing up front:
+
+- **Import the ADO `Created Date` column.** Without it, Carrito cannot tell planned work
+  from work that arrived mid‑sprint, and Commitment/Unplanned will not split.
+- **Bring your history across first.** `node scripts/import-workbook.mjs Scrum_Metrics.xlsx`
+  reads the workbook, prints SQL plus a parity report against the sheet's own cached values,
+  and writes nothing. The velocity average is a running mean anchored at your first sprint,
+  so an empty history makes it permanently wrong.
+- **Sync the holiday table** (Calendar → *Sync public holidays*) after adding members, so the
+  SQL views and the TypeScript capacity engine read the same calendar.

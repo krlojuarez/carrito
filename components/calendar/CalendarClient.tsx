@@ -19,9 +19,10 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
-import { CalendarOutlined, PlusOutlined } from '@ant-design/icons';
+import { CalendarOutlined, CloudSyncOutlined, PlusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs, { type Dayjs } from 'dayjs';
 import Holidays from 'date-holidays';
@@ -68,6 +69,31 @@ export default function CalendarClient({
 }) {
   const router = useRouter();
   const { message } = App.useApp();
+  const [syncing, setSyncing] = useState(false);
+
+  async function syncHolidays() {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/holidays/sync', { method: 'POST' });
+      const body = (await res.json()) as {
+        synced?: number;
+        countries?: string[];
+        years?: number[];
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(body.error ?? 'Sync failed');
+      message.success(
+        body.message ??
+          `Synced ${body.synced ?? 0} public holidays for ${(body.countries ?? []).join(', ')}`,
+      );
+      router.refresh();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : 'Could not sync holidays');
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   const [panelDate, setPanelDate] = useState<Dayjs>(dayjs());
   const [ptoOpen, setPtoOpen] = useState(false);
@@ -243,7 +269,7 @@ export default function CalendarClient({
     const { error } = await supabase.from('holidays').insert({
       holiday_date: values.date.format('YYYY-MM-DD'),
       name: values.name.trim(),
-      country_code: values.country_code || 'US',
+      country_code: values.country_code || null,
       is_manual: true,
       source: 'manual',
       team_id: teamId,
@@ -348,6 +374,11 @@ export default function CalendarClient({
               <Button icon={<CalendarOutlined />} onClick={() => setHolidayOpen(true)}>
                 Add company holiday
               </Button>
+              <Tooltip title="Load every member country's public holidays into the database, so capacity and the Scrum Metrics views both see the same calendar. Company holidays you added by hand are left untouched.">
+                <Button icon={<CloudSyncOutlined />} loading={syncing} onClick={syncHolidays}>
+                  Sync public holidays
+                </Button>
+              </Tooltip>
             </Space>
           ) : undefined
         }
@@ -425,13 +456,13 @@ export default function CalendarClient({
           <Form.Item
             name="country_code"
             label="Country"
-            tooltip="Leave empty to apply company-wide (defaults to US)"
+            tooltip="Leave empty and the day applies to everyone, whatever country they are in."
           >
             <Select
               allowClear
               showSearch
               optionFilterProp="label"
-              placeholder="Company-wide (US)"
+              placeholder="Company-wide (everyone)"
               options={COUNTRIES.map((c) => ({ value: c.code, label: `${c.name} (${c.code})` }))}
             />
           </Form.Item>

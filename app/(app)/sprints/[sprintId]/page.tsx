@@ -11,6 +11,7 @@ import {
   getPtos,
   getSettings,
   getSprint,
+  getSprints,
   getStories,
 } from '@/lib/data/queries';
 import type { StoryLoad } from '@/lib/capacity/engine';
@@ -45,12 +46,13 @@ export default async function SprintDetailPage({
     );
   }
 
-  const [members, settings, ptos, holidays, stories] = await Promise.all([
+  const [members, settings, ptos, holidays, stories, allSprints] = await Promise.all([
     getMembers(team.id),
     getSettings(),
     getPtos(team.id),
     getManualHolidays(team.id),
     getStories(team.id, sprintId),
+    getSprints(team.id),
   ]);
 
   const storyLoad: StoryLoad[] = stories.map((s) => ({
@@ -86,6 +88,7 @@ export default async function SprintDetailPage({
 
   return (
     <SprintDetailClient
+      teamId={team.id}
       sprintId={sprint.id}
       sprintName={sprint.name}
       sprintRange={{ start: sprint.start_date, end: sprint.end_date }}
@@ -96,6 +99,10 @@ export default async function SprintDetailPage({
       warnings={result.warnings}
       stories={storyRows}
       isAdmin={isAdmin}
+      otherSprints={allSprints
+        .filter((s) => s.id !== sprint.id)
+        .map((s) => ({ id: s.id, name: s.name, startDate: s.start_date, endDate: s.end_date }))}
+      defaultSprintLengthDays={settings?.default_sprint_length_days ?? 14}
     />
   );
 }

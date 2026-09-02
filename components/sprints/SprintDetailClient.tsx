@@ -24,8 +24,9 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import PageHeader from '@/components/common/PageHeader';
 import WarningsList from '@/components/capacity/WarningsList';
+import CloseSprintModal, { type SprintOption } from '@/components/sprints/CloseSprintModal';
 import { createClient } from '@/lib/supabase/client';
-import { DONE_STATES } from '@/lib/ado/fields';
+import { isDoneState, isRemovedState } from '@/lib/ado/fields';
 import type { FreeCapacity, TeamCapacity, Warning } from '@/lib/capacity/types';
 
 type MemberLite = Omit<TeamCapacity['members'][number], 'ledger'>;
@@ -44,6 +45,7 @@ interface StoryRow {
 const round = (x: number) => Math.round(x * 10) / 10;
 
 export default function SprintDetailClient({
+  teamId,
   sprintId,
   sprintName,
   sprintRange,
@@ -54,7 +56,10 @@ export default function SprintDetailClient({
   warnings,
   stories,
   isAdmin,
+  otherSprints,
+  defaultSprintLengthDays,
 }: {
+  teamId: string;
   sprintId: string;
   sprintName: string;
   sprintRange: { start: string; end: string };
@@ -65,6 +70,8 @@ export default function SprintDetailClient({
   warnings: Warning[];
   stories: StoryRow[];
   isAdmin: boolean;
+  otherSprints: SprintOption[];
+  defaultSprintLengthDays: number;
 }) {
   const router = useRouter();
   const { message } = App.useApp();
@@ -74,10 +81,11 @@ export default function SprintDetailClient({
     stories.filter((s) => !s.isCarryOver).reduce((a, s) => a + s.points, 0)
   );
   const completedPoints = round(
-    stories
-      .filter((s) => DONE_STATES.has((s.state ?? '').toLowerCase()))
-      .reduce((a, s) => a + s.points, 0)
+    stories.filter((s) => isDoneState(s.state)).reduce((a, s) => a + s.points, 0)
   );
+  // What close_sprint() will flag as carry-over: neither done nor removed.
+  const unfinished = stories.filter((s) => !isDoneState(s.state) && !isRemovedState(s.state));
+  const unfinishedPoints = round(unfinished.reduce((a, s) => a + s.points, 0));
 
   async function toggleClosed() {
     setLoading(true);
@@ -199,21 +207,28 @@ export default function SprintDetailClient({
         }
         extra={
           isAdmin ? (
-            <Popconfirm
-              title={isClosed ? 'Reopen this sprint?' : 'Close this sprint?'}
-              description={
-                isClosed
-                  ? 'The sprint will be marked open again.'
-                  : `Velocity will be saved: ${committedPoints} committed, ${completedPoints} completed.`
-              }
-              okText="Yes"
-              cancelText="Cancel"
-              onConfirm={toggleClosed}
-            >
-              <Button type="primary" loading={loading}>
-                {isClosed ? 'Reopen sprint' : 'Close sprint'}
-              </Button>
-            </Popconfirm>
+            isClosed ? (
+              <Popconfirm
+                title="Reopen this sprint?"
+                description="The sprint will be marked open again. Carry-over already recorded is kept."
+                okText="Yes"
+                cancelText="Cancel"
+                onConfirm={toggleClosed}
+              >
+                <Button loading={loading}>Reopen sprint</Button>
+              </Popconfirm>
+            ) : (
+              <CloseSprintModal
+                teamId={teamId}
+                sprintId={sprintId}
+                sprintName={sprintName}
+                sprintEnd={sprintRange.end}
+                otherSprints={otherSprints}
+                defaultSprintLengthDays={defaultSprintLengthDays}
+                unfinishedCount={unfinished.length}
+                unfinishedPoints={unfinishedPoints}
+              />
+            )
           ) : undefined
         }
       />
