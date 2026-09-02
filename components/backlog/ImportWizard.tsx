@@ -219,6 +219,9 @@ export default function ImportWizard({
         batchId,
         rows: review.rows,
         lookup: { byEmail: resolution.byEmail, byName: resolution.byName },
+        // Only write carry-over when the export actually carried the column, so
+        // a re-import never wipes values a human curated or close_sprint() set.
+        includeCarryOver: !!mapping.carry_over_points,
       });
 
       setOutcome({
@@ -264,9 +267,19 @@ export default function ImportWizard({
       title: 'Carrito Field',
       key: 'label',
       render: (_, def) => (
-        <Space>
-          <Text strong>{def.label}</Text>
-          {def.required && <Tag color="red">required</Tag>}
+        <Space direction="vertical" size={0}>
+          <Space>
+            <Text strong>{def.label}</Text>
+            {def.required && <Tag color="red">required</Tag>}
+            {def.field === 'created_date' && !mapping.created_date && (
+              <Tag color="orange">needed for scope creep</Tag>
+            )}
+          </Space>
+          {def.hint && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {def.hint}
+            </Text>
+          )}
         </Space>
       ),
     },
@@ -352,6 +365,17 @@ export default function ImportWizard({
             </Space>
           }
         >
+          {requiredMapped && !mapping.created_date && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="No Created Date column mapped"
+              description={
+                "Without it, Carrito cannot tell planned work from work that arrived mid-sprint, so Commitment and Unplanned will not split. Add the \u201cCreated Date\u201d column to your ADO query and re-export."
+              }
+            />
+          )}
           {!requiredMapped && (
             <Alert
               type="warning"

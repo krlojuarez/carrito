@@ -10,14 +10,45 @@ const PARSE_CONFIG: Papa.ParseConfig = {
 
 const normalize = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, ' ').trim();
 
-/** Guess a column mapping from CSV headers using the synonym table. */
+/**
+ * Guess a column mapping from CSV headers using the synonym table.
+ *
+ * A header is claimed by at most one field: exact synonym matches are resolved
+ * first (across all fields), then fuzzy ones. Without that, "Story Points"
+ * would happily swallow a "Carry Over Points" column via its 'points' synonym.
+ */
 export function autoMap(headers: string[]): ColumnMapping {
   const norm = headers.map((h) => ({ raw: h, n: normalize(h) }));
   const mapping: ColumnMapping = {};
+  const claimed = new Set<string>();
+
+  const claim = (field: CarritoField, raw: string | undefined) => {
+    if (!raw || claimed.has(raw)) return false;
+    mapping[field] = raw;
+    claimed.add(raw);
+    return true;
+  };
+
+  // Pass 1 — exact synonym match wins outright.
   for (const def of FIELD_DEFS) {
-    const exact = norm.find((h) => def.synonyms.some((syn) => normalize(syn) === h.n));
-    const partial = norm.find((h) => def.synonyms.some((syn) => h.n.includes(normalize(syn))));
-    mapping[def.field] = (exact ?? partial)?.raw ?? null;
+    if (mapping[def.field]) continue;
+    const exact = norm.find(
+      (h) => !claimed.has(h.raw) && def.synonyms.some((syn) => normalize(syn) === h.n),
+    );
+    claim(def.field, exact?.raw);
+  }
+
+  // Pass 2 — fall back to a substring match on anything still unclaimed.
+  for (const def of FIELD_DEFS) {
+    if (mapping[def.field]) continue;
+    const partial = norm.find(
+      (h) => !claimed.has(h.raw) && def.synonyms.some((syn) => h.n.includes(normalize(syn))),
+    );
+    if (!claim(def.field, partial?.raw)) mapping[def.field] = mapping[def.field] ?? null;
+  }
+
+  for (const def of FIELD_DEFS) {
+    if (mapping[def.field] === undefined) mapping[def.field] = null;
   }
   return mapping;
 }
@@ -26,6 +57,8 @@ export function autoMap(headers: string[]): ColumnMapping {
 export function parseAssignedTo(raw?: string): { name: string | null; email: string | null } {
   if (!raw || !raw.trim()) return { name: null, email: null };
   const v = raw.trim();
+  // ADO exports "N/A" for unassigned work items.
+  if (v.toUpperCase() === 'N/A') return { name: null, email: null };
   const m = v.match(/^(.*?)\s*<([^>]+)>\s*$/);
   if (m) {
     const email = m[2].includes('@') ? m[2].trim().toLowerCase() : null;
@@ -52,21 +85,50 @@ export function parseTags(raw?: string): string[] {
   return raw.split(/[;,]/).map((t) => t.trim()).filter(Boolean);
 }
 
+/**
+ * ADO tags record carry-over history as "carry-over 26.14; carry-over 26.15"
+ * (and the older "Carry Over Last Sprint (COLS)"). Detecting it means a story
+ * that spilled is flagged on import instead of being spotted by eye.
+ */
+const CARRY_TAG = /^(carry[\s-]?over(\s+last\s+sprint)?|cols)\b/i;
+
+export function carryOverTags(tags: string[]): string[] {
+  return tags.filter((t) => CARRY_TAG.test(t.trim()));
+}
+
+export function hasCarryOverTag(tags: string[]): boolean {
+  return carryOverTags(tags).length > 0;
+}
+
+/** ADO date columns are locale-formatted; keep the ISO string or null. */
+export function parseDate(raw?: string): string | null {
+  if (!raw || !raw.trim()) return null;
+  const d = new Date(raw.trim());
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 export interface StoryImportRow {
   work_item_id: number;
   work_item_type: string | null;
   title: string;
   assigned_to_name: string | null;
   assigned_to_email: string | null;
+  developer_name: string | null;
+  developer_email: string | null;
   state: string | null;
   story_points: number | null;
+  carry_over_points: number | null;
   iteration_path: string | null;
   sprint: string | null;
   area_path: string | null;
   tags: string[];
   priority: number | null;
   parent_id: number | null;
+  created_date: string | null;
+  closed_date: string | null;
   changed_date: string | null;
+  /** True when the ADO tags say this item already spilled from an earlier sprint. */
+  carry_over_tagged: boolean;
   raw: Record<string, string>;
 }
 
@@ -120,33 +182,34 @@ export function transformRows(
       errors.push({ rowIndex: i, field: 'title', message: 'Missing Title', raw: r });
       return;
     }
-    const { name, email } = parseAssignedTo(get(r, 'assigned_to'));
+    const assigned = parseAssignedTo(get(r, 'assigned_to'));
+    const developer = parseAssignedTo(get(r, 'developer'));
     const iteration = get(r, 'iteration_path') || null;
     const priRaw = get(r, 'priority');
     const parentRaw = get(r, 'parent_id');
-    const changed = get(r, 'changed_date');
-
-    let changedIso: string | null = null;
-    if (changed) {
-      const d = new Date(changed);
-      changedIso = Number.isNaN(d.getTime()) ? null : d.toISOString();
-    }
+    const tags = parseTags(get(r, 'tags'));
 
     rows.push({
       work_item_id: id,
       work_item_type: get(r, 'work_item_type') || null,
       title,
-      assigned_to_name: name,
-      assigned_to_email: email,
+      assigned_to_name: assigned.name,
+      assigned_to_email: assigned.email,
+      developer_name: developer.name,
+      developer_email: developer.email,
       state: get(r, 'state') || null,
       story_points: parseStoryPoints(get(r, 'story_points')),
+      carry_over_points: parseStoryPoints(get(r, 'carry_over_points')),
       iteration_path: iteration,
       sprint: sprintFromIteration(iteration ?? undefined),
       area_path: get(r, 'area_path') || null,
-      tags: parseTags(get(r, 'tags')),
+      tags,
       priority: priRaw && Number.isFinite(Number(priRaw)) ? Number(priRaw) : null,
       parent_id: parentRaw && Number.isInteger(Number(parentRaw)) ? Number(parentRaw) : null,
-      changed_date: changedIso,
+      created_date: parseDate(get(r, 'created_date')),
+      closed_date: parseDate(get(r, 'closed_date')),
+      changed_date: parseDate(get(r, 'changed_date')),
+      carry_over_tagged: hasCarryOverTag(tags),
       raw: r,
     });
   });
