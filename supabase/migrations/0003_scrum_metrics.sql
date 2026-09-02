@@ -279,6 +279,17 @@ $$;
 --    A day that is BOTH a holiday and PTO counts ONCE, as a holiday — matching
 --    lib/capacity/engine.ts so SQL and TypeScript never disagree.
 -- ---------------------------------------------------------------------------
+-- Every view below is rebuilt from scratch each run: `create or replace view`
+-- cannot change a column list, and member_sprint_days() cannot be dropped while
+-- a view still depends on it. Drop dependents first, in reverse dependency
+-- order, so a re-run of this file is genuinely idempotent.
+drop view if exists public.v_sprint_forecast      cascade;
+drop view if exists public.v_sprint_data_quality  cascade;
+drop view if exists public.v_sprint_velocity      cascade;
+drop view if exists public.v_member_capacity_profile cascade;
+drop view if exists public.v_member_sprint_capacity  cascade;
+drop view if exists public.v_story_metrics        cascade;
+
 drop function if exists public.member_sprint_days(uuid, date, date);
 create function public.member_sprint_days(
   p_member_id uuid,
@@ -360,12 +371,6 @@ $$;
 -- 8. v_story_metrics — one row per story = the derived columns M/N/O/P of a
 --    sprint tab, made explicit.
 -- ---------------------------------------------------------------------------
-drop view if exists public.v_sprint_forecast      cascade;
-drop view if exists public.v_sprint_data_quality  cascade;
-drop view if exists public.v_sprint_velocity      cascade;
-drop view if exists public.v_member_capacity_profile cascade;
-drop view if exists public.v_member_sprint_capacity  cascade;
-drop view if exists public.v_story_metrics        cascade;
 
 create view public.v_story_metrics as
 with base as (
