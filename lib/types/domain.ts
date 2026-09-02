@@ -65,7 +65,8 @@ export interface Sprint {
 
 export interface Holiday {
   id: UUID;
-  country_code: string;
+  /** null = company-wide (applies to every member, whatever their country). */
+  country_code: string | null;
   region_code: string | null;
   holiday_date: ISODate;
   name: string;

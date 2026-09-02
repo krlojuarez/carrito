@@ -26,9 +26,9 @@ export interface SprintVelocity {
   unplanned_points: number;
   /** Velocity!F — SP that did not spill. */
   done_points: number;
-  /** Same, but only for stories whose state actually satisfies the DoD. */
-  done_points_strict: number;
-  /** done_points - done_points_strict: work counted as done that is not Done. */
+  /** Points that reached a done state, net of anything that spilled. */
+  delivered_points: number;
+  /** done_points - delivered_points: work counted as done that never was. */
   unverified_done_points: number;
   /** Velocity!I — all SP in the sprint, committed + unplanned. */
   total_points: number;
@@ -47,7 +47,11 @@ export interface SprintVelocity {
   /** Velocity!H — cumulative mean of done_points across sprints. */
   velocity_avg_points: number | null;
 
+  /** True while the sprint is still running — its Done figure is not history yet. */
+  is_provisional: boolean;
   gross_working_days: number;
+  /** Of the nominal days, those a member was actually on the team. */
+  tenure_working_days: number;
   net_working_days: number;
   holiday_days: number;
   pto_days: number;
@@ -65,8 +69,10 @@ export interface MemberSprintCapacity {
   country_code: string | null;
   /** Capacity!B — FTE factor (1 = full time, 0.5 = half). */
   capacity_factor: number;
-  /** Capacity!A — working weekdays in the sprint. */
+  /** Capacity!A — working weekdays in the sprint (nominal). */
   gross_days: number;
+  /** Of those, the days this member was on the team. */
+  tenure_days: number;
   /** Capacity!G/L/Q/W */
   holiday_days: number;
   /** Capacity!H/M/R/X */

@@ -269,7 +269,7 @@ export default function CalendarClient({
     const { error } = await supabase.from('holidays').insert({
       holiday_date: values.date.format('YYYY-MM-DD'),
       name: values.name.trim(),
-      country_code: values.country_code || 'US',
+      country_code: values.country_code || null,
       is_manual: true,
       source: 'manual',
       team_id: teamId,
@@ -456,13 +456,13 @@ export default function CalendarClient({
           <Form.Item
             name="country_code"
             label="Country"
-            tooltip="Leave empty to apply company-wide (defaults to US)"
+            tooltip="Leave empty and the day applies to everyone, whatever country they are in."
           >
             <Select
               allowClear
               showSearch
               optionFilterProp="label"
-              placeholder="Company-wide (US)"
+              placeholder="Company-wide (everyone)"
               options={COUNTRIES.map((c) => ({ value: c.code, label: `${c.name} (${c.code})` }))}
             />
           </Form.Item>

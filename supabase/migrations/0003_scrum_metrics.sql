@@ -7,6 +7,11 @@
 -- Run in Supabase → SQL Editor AFTER 0001_init.sql and 0002_optional_country.sql.
 -- Idempotent: safe to re-run.
 --
+-- IF YOU EVER RE-RUN 0001, RE-RUN THIS FILE AFTER IT. 0001 ends with its own
+-- `create or replace function public.guard_story_member_update()`, which would
+-- replace the stricter guard defined here (section 5) with the original
+-- denylist version and let any member edit the metric columns added below.
+--
 -- WHAT THIS REPRODUCES (workbook cell -> object here)
 --   Velocity!D  Commitment          -> v_sprint_velocity.committed_points
 --   Velocity!E  Unplanned           -> v_sprint_velocity.unplanned_points
@@ -67,6 +72,21 @@ do $$ begin
       check (capacity_factor > 0 and capacity_factor <= 1);
   end if;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- 2b. Holidays: a company-wide day is one with NO country
+--     Calendar → Add company holiday offers "leave empty to apply company-wide",
+--     but country_code was NOT NULL so it stored 'US' and the engine then
+--     ignored the country entirely — which made every holiday company-wide and
+--     every company holiday a US one. NULL now means "everyone", the same way
+--     0002 made members.country_code optional.
+-- ---------------------------------------------------------------------------
+alter table public.holidays alter column country_code drop not null;
+
+drop index if exists public.holidays_natural_key;
+create unique index if not exists holidays_natural_key
+  on public.holidays (coalesce(country_code, '**'), coalesce(region_code, ''), holiday_date,
+                      coalesce(team_id, '00000000-0000-0000-0000-000000000000'::uuid));
 
 -- ---------------------------------------------------------------------------
 -- 3. Sprints: commitment snapshot marker
@@ -150,24 +170,38 @@ create trigger trg_story_sync_carry_over
 --    means new columns are locked by default.
 -- ---------------------------------------------------------------------------
 create or replace function public.guard_story_member_update()
-returns trigger language plpgsql security definer set search_path = public as $$
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare
-  -- Columns a non-admin team member is allowed to curate.
-  allowed text[] := array[
-    'is_carry_over',
-    'carry_over_points',
-    'excluded_from_metrics',
-    'exclusion_reason',
-    'updated_at'
-  ];
+  -- Carry-over only. NOT excluded_from_metrics: excluding a story removes its
+  -- points from every total, which is an admin decision.
+  allowed  text[] := array['is_carry_over', 'carry_over_points', 'updated_at'];
+  v_closed boolean;
 begin
   if public.is_admin() then
     return new;
   end if;
+
   if (to_jsonb(old) - allowed) is distinct from (to_jsonb(new) - allowed) then
-    raise exception
-      'Only carry-over and metric-exclusion fields may be changed by non-admin users';
+    raise exception 'Only carry-over may be changed by non-admin users';
   end if;
+
+  -- Published history is not editable. Reopen the sprint to correct it.
+  select s.is_closed into v_closed from public.sprints s where s.id = old.sprint_id;
+  if coalesce(v_closed, false) then
+    raise exception 'Sprint is closed; its carry-over can no longer be changed';
+  end if;
+
+  -- carry_over_points drives done_points, so a member who can set it on ANY
+  -- story can zero out a sprint and drag the running velocity average with it.
+  -- Confine each person to their own work.
+  if not exists (
+    select 1 from public.members m
+    where m.id in (old.developer_member_id, old.assignee_member_id)
+      and m.profile_id = auth.uid()
+  ) then
+    raise exception 'You may only change carry-over on your own stories';
+  end if;
+
   return new;
 end;
 $$;
@@ -178,12 +212,12 @@ $$;
 
 -- 'Removed' is NOT done — the app's original DONE_STATES wrongly included it.
 create or replace function public.is_done_state(p_state text)
-returns boolean language sql immutable as $$
+returns boolean language sql immutable set search_path = pg_catalog as $$
   select lower(coalesce(p_state, '')) in ('done', 'closed', 'resolved', 'completed', 'accepted');
 $$;
 
 create or replace function public.is_removed_state(p_state text)
-returns boolean language sql immutable as $$
+returns boolean language sql immutable set search_path = pg_catalog as $$
   select lower(coalesce(p_state, '')) in ('removed', 'cut', 'cancelled', 'canceled');
 $$;
 
@@ -195,10 +229,17 @@ returns int[] language sql stable as $$
   );
 $$;
 
+-- Falls back to UTC when the configured name is not a real timezone. Without
+-- this, one bad string in settings makes every metrics view raise and takes the
+-- whole dashboard down.
 create or replace function public.metrics_timezone()
 returns text language sql stable as $$
   select coalesce(
-    (select reporting_timezone from public.settings where team_id is null limit 1),
+    (select s.reporting_timezone
+       from public.settings s
+      where s.team_id is null
+        and exists (select 1 from pg_timezone_names z where z.name = s.reporting_timezone)
+      limit 1),
     'UTC'
   );
 $$;
@@ -225,24 +266,28 @@ $$;
 -- ---------------------------------------------------------------------------
 -- 7. member_sprint_days — the Capacity sheet's G/H/I block, computed.
 --
---    gross   = working weekdays in the sprint the member was on the team
+--    gross   = working weekdays in the sprint (nominal — Capacity!A)
+--    tenure  = of those, the days the member was actually on the team
 --    holiday = those days that are a public holiday for the member's country,
 --              or a company-wide manual holiday  (workbook "Holidays" columns,
 --              filtered by "Impacts Work Calendar" — implicit here because only
 --              working weekdays are considered at all)
 --    pto     = sum of PTO day fractions on the remaining days
---    net     = gross - holiday - pto
+--    net     = tenure - holiday - pto   (so days lost to someone joining or
+--              leaving mid-sprint show up as a drop in Workday %)
 --
 --    A day that is BOTH a holiday and PTO counts ONCE, as a holiday — matching
 --    lib/capacity/engine.ts so SQL and TypeScript never disagree.
 -- ---------------------------------------------------------------------------
-create or replace function public.member_sprint_days(
+drop function if exists public.member_sprint_days(uuid, date, date);
+create function public.member_sprint_days(
   p_member_id uuid,
   p_start     date,
   p_end       date
 )
 returns table (
   gross_days   numeric,
+  tenure_days  numeric,
   holiday_days numeric,
   pto_days     numeric,
   net_days     numeric
@@ -252,34 +297,34 @@ language sql stable as $$
     select id, team_id, country_code, region_code, is_active, start_date, end_date
     from public.members
     where id = p_member_id
+      -- Someone who has left is still part of the sprints they worked; their
+      -- end_date bounds the days below. Only a member deactivated WITHOUT an
+      -- end date (never really on the team) drops out entirely.
+      and (is_active or end_date is not null)
   ),
   days as (
-    select b.d
+    -- NOMINAL working days: every configured weekday in the sprint, whether or
+    -- not this person was on the team for all of them. Clipping gross to tenure
+    -- would make Workday % blind to joiners and leavers — a member present 3 of
+    -- 10 days would read as 100% available.
+    select b.d,
+           ((m.start_date is null or b.d >= m.start_date)
+        and (m.end_date   is null or b.d <= m.end_date)) as in_tenure
     from m
     cross join public.business_days(p_start, p_end) b(d)
-    -- Someone who has left is still part of the sprints they worked. Their
-    -- end_date bounds the days below, so history stays fixed; only a member
-    -- deactivated WITHOUT an end date (i.e. never really on the team) drops out.
-    where (m.is_active or m.end_date is not null)
-      and (m.start_date is null or b.d >= m.start_date)
-      and (m.end_date   is null or b.d <= m.end_date)
   ),
   hol as (
     select distinct h.holiday_date as d
     from public.holidays h
     cross join m
     where h.holiday_date between p_start and p_end
-      and (
-        -- company / team-wide manual holiday: applies to everyone
-        (h.is_manual and (h.team_id is null or h.team_id = m.team_id))
-        -- public holiday: only for members of that country (and region, if set)
-        or (
-          not h.is_manual
-          and m.country_code is not null
-          and h.country_code = m.country_code
-          and (h.region_code is null or m.region_code is null or h.region_code = m.region_code)
-        )
-      )
+      -- A holiday with no country is company-wide; otherwise it applies only to
+      -- members of that country. A holiday with no region is national; one with
+      -- a region applies only to members explicitly in that region.
+      and (h.country_code is null
+           or (m.country_code is not null and h.country_code = m.country_code))
+      and (h.region_code is null or h.region_code = m.region_code)
+      and (h.team_id is null or h.team_id = m.team_id)
   ),
   pto_frac as (
     select d.d, least(1.0, sum(p.day_fraction))::numeric as frac
@@ -287,22 +332,27 @@ language sql stable as $$
     join public.pto p
       on p.member_id = p_member_id
      and d.d between p.start_date and p.end_date
+    where d.in_tenure
     group by d.d
   ),
   ledger as (
     select
       d.d,
-      (h.d is not null)               as is_holiday,
-      coalesce(pf.frac, 0)::numeric   as pto
+      d.in_tenure,
+      (h.d is not null)             as is_holiday,
+      coalesce(pf.frac, 0)::numeric as pto
     from days d
     left join hol      h  on h.d  = d.d
     left join pto_frac pf on pf.d = d.d
   )
   select
-    coalesce(count(*), 0)::numeric                                                as gross_days,
-    coalesce(count(*) filter (where is_holiday), 0)::numeric                      as holiday_days,
-    coalesce(sum(case when is_holiday then 0 else pto end), 0)::numeric           as pto_days,
-    coalesce(sum(case when is_holiday then 0 else 1 - pto end), 0)::numeric       as net_days
+    coalesce(count(*), 0)::numeric                                     as gross_days,
+    coalesce(count(*) filter (where in_tenure), 0)::numeric            as tenure_days,
+    coalesce(count(*) filter (where in_tenure and is_holiday), 0)::numeric as holiday_days,
+    coalesce(sum(case when not in_tenure or is_holiday then 0 else pto end), 0)::numeric
+                                                                       as pto_days,
+    coalesce(sum(case when not in_tenure or is_holiday then 0 else 1 - pto end), 0)::numeric
+                                                                       as net_days
   from ledger;
 $$;
 
@@ -372,14 +422,14 @@ select
     when b.carry_over_points > 0    then 0
     else b.story_points
   end::numeric as done_points,
-  -- Same, but honouring the stated Definition of Done. Where this differs from
-  -- done_points the sprint tab is claiming credit for work that is not Done.
+  -- The honest version: points that actually reached a done state, net of what
+  -- spilled. Unlike the sheet's rule this neither credits unfinished work nor
+  -- throws away a finished story's whole estimate because 1 point spilled.
   case
     when b.excluded_from_metrics then 0
-    when b.carry_over_points > 0 then 0
     when not b.is_done_state     then 0
-    else b.story_points
-  end::numeric as done_points_strict,
+    else greatest(b.story_points - b.carry_over_points, 0)
+  end::numeric as delivered_points,
   case when b.excluded_from_metrics or not b.is_removed_state then 0
        else b.story_points end::numeric as removed_points,
   case when b.excluded_from_metrics then 0 else b.story_points end::numeric as counted_points
@@ -405,6 +455,7 @@ select
   m.country_code,
   m.capacity_factor,
   d.gross_days,
+  d.tenure_days,
   d.holiday_days,
   d.pto_days,
   d.net_days,
@@ -498,8 +549,8 @@ with agg as (
     count(v.story_id) filter (where v.carry_over_points > 0)::int as stories_carried,
     coalesce(sum(v.committed_points),   0)::numeric as committed_points,
     coalesce(sum(v.unplanned_points),   0)::numeric as unplanned_points,
-    coalesce(sum(v.done_points),        0)::numeric as done_points,
-    coalesce(sum(v.done_points_strict), 0)::numeric as done_points_strict,
+    coalesce(sum(v.done_points),       0)::numeric as done_points,
+    coalesce(sum(v.delivered_points),  0)::numeric as delivered_points,
     coalesce(sum(v.counted_points),     0)::numeric as total_points,
     coalesce(sum(v.carry_over_points),  0)::numeric as carry_over_points,
     coalesce(sum(v.removed_points),     0)::numeric as removed_points
@@ -510,10 +561,11 @@ with agg as (
 days as (
   select
     sprint_id,
-    sum(gross_days) as gross_days,
-    sum(net_days)   as net_days,
+    sum(gross_days)   as gross_days,
+    sum(tenure_days)  as tenure_days,
+    sum(net_days)     as net_days,
     sum(holiday_days) as holiday_days,
-    sum(pto_days)   as pto_days
+    sum(pto_days)     as pto_days
   from public.v_member_sprint_capacity
   group by sprint_id
 )
@@ -531,10 +583,10 @@ select
   a.committed_points,
   a.unplanned_points,
   a.done_points,
-  a.done_points_strict,
-  -- Work the sprint tab counts as Done but whose state says otherwise. This is
-  -- the workbook's silent defect, surfaced as a number you can act on.
-  (a.done_points - a.done_points_strict)::numeric as unverified_done_points,
+  a.delivered_points,
+  -- Work the sprint tab counts as Done but that never reached a done state.
+  -- This is the workbook's silent defect, surfaced as a number you can act on.
+  greatest(a.done_points - a.delivered_points, 0)::numeric as unverified_done_points,
   a.total_points,
   a.carry_over_points,
   a.removed_points,
@@ -543,13 +595,20 @@ select
   (a.total_points - a.carry_over_points)::numeric               as capacity_points,
   round(d.net_days / nullif(d.gross_days, 0), 4)                as workday_pct,
   coalesce(d.gross_days, 0)   as gross_working_days,
+  coalesce(d.tenure_days, 0)  as tenure_working_days,
   coalesce(d.net_days, 0)     as net_working_days,
   coalesce(d.holiday_days, 0) as holiday_days,
   coalesce(d.pto_days, 0)     as pto_days,
-  -- Velocity!H: running AVERAGE($F$27:F<n>) — cumulative mean of Done, over the
-  -- sprints that actually carry work.
+  -- Is this sprint over? An open sprint has recorded no carry-over yet, so the
+  -- sheet's Done rule credits everything in it — fine as a live figure, wrong
+  -- as history. Marked, and kept out of the average below.
+  not (a.is_closed or a.end_date < current_date) as is_provisional,
+  -- Velocity!H: running AVERAGE($F$27:F<n>) — cumulative mean of Done over the
+  -- finished sprints that carry work.
   round(
-    avg(a.done_points) filter (where a.story_count > 0) over (
+    avg(a.done_points) filter (
+      where a.story_count > 0 and (a.is_closed or a.end_date < current_date)
+    ) over (
       partition by a.team_id
       order by a.start_date, a.sprint_id
       rows between unbounded preceding and current row
@@ -577,14 +636,18 @@ select
   round(sum(
     c.net_days * c.capacity_factor * coalesce(p.avg_points_per_day, 0)
   ), 1)                                          as capacity_points,
-  round(sum(c.committed_points), 1)              as committed_points,
-  round(sum(c.carry_over_points), 1)             as carry_over_points,
+  -- Demand comes from the SPRINT total, not the per-member roll-up: a story
+  -- with no resolved developer is real work, and summing per-member silently
+  -- drops it — overstating free capacity in the direction of over-commitment.
+  round(min(sv.committed_points), 1)             as committed_points,
+  round(min(sv.carry_over_points), 1)            as carry_over_points,
   round(
     sum(c.net_days * c.capacity_factor * coalesce(p.avg_points_per_day, 0))
-    - sum(c.committed_points) - sum(c.carry_over_points),
+    - min(sv.committed_points) - min(sv.carry_over_points),
   1)                                             as free_points
 from public.v_member_sprint_capacity c
 left join public.v_member_capacity_profile p on p.member_id = c.member_id
+join public.v_sprint_velocity sv on sv.sprint_id = c.sprint_id
 group by c.sprint_id, c.team_id, c.sprint_name, c.start_date, c.end_date;
 
 alter view public.v_sprint_forecast set (security_invoker = on);
@@ -646,12 +709,21 @@ begin
   if not public.is_admin() then
     raise exception 'Only admins can snapshot a sprint commitment';
   end if;
+  if (select is_closed from public.sprints where id = p_sprint_id) then
+    raise exception 'Sprint is closed; reopen it before changing its commitment';
+  end if;
 
+  -- Only work that predates the sprint. Run at sprint start this is every row;
+  -- run late it still refuses to relabel mid-sprint arrivals as commitment.
   update public.user_stories us
      set committed_points = coalesce(us.story_points, 0)
-   where us.sprint_id = p_sprint_id
+    from public.sprints s
+   where s.id = p_sprint_id
+     and us.sprint_id = s.id
      and us.committed_points is null
-     and not us.excluded_from_metrics;
+     and not us.excluded_from_metrics
+     and (us.created_date is null
+          or us.created_date <= public.sprint_start_ts(s.start_date));
   get diagnostics v_rows = row_count;
 
   update public.sprints
@@ -673,6 +745,11 @@ declare
 begin
   if not public.is_admin() then
     raise exception 'Only admins can recompute carry-over';
+  end if;
+  -- close_sprint() calls this before setting is_closed, so this only blocks a
+  -- direct call against a sprint whose numbers are already published.
+  if (select is_closed from public.sprints where id = p_sprint_id) then
+    raise exception 'Sprint is closed; reopen it before recomputing carry-over';
   end if;
 
   update public.user_stories us

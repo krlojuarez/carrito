@@ -17,6 +17,7 @@ import type { LocalDate } from './types';
 export const SYNC_SOURCE = 'date-holidays';
 
 export interface SyncHolidayRow {
+  /** Always set here — the sync only ever writes country public holidays. */
   country_code: string;
   region_code: string | null;
   holiday_date: LocalDate;

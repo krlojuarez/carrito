@@ -67,7 +67,7 @@ export default function MetricsClient({
   );
 
   const doneOf = useCallback(
-    (v: SprintVelocity) => (doneBasis === 'dod' ? v.done_points_strict : v.done_points),
+    (v: SprintVelocity) => (doneBasis === 'dod' ? v.delivered_points : v.done_points),
     [doneBasis],
   );
 
@@ -226,7 +226,7 @@ export default function MetricsClient({
       render: (_, v) => {
         const p =
           doneBasis === 'dod' && v.committed_points
-            ? v.done_points_strict / v.committed_points
+            ? v.delivered_points / v.committed_points
             : v.done_pct;
         return (
           <Text style={{ color: p != null && p >= 1 ? VIZ_STATUS.good : undefined }}>{pct(p)}</Text>
@@ -378,7 +378,7 @@ export default function MetricsClient({
         Commitment: v.committed_points,
         Unplanned: v.unplanned_points,
         Done: v.done_points,
-        'Done (DoD)': v.done_points_strict,
+        'Delivered (DoD)': v.delivered_points,
         'Done Percentage': v.done_pct ?? '',
         'Velocity AVG': v.velocity_avg_points ?? '',
         'Total Sprint SP': v.total_points,
@@ -417,7 +417,7 @@ export default function MetricsClient({
               onChange={setDoneBasis}
               options={[
                 { label: 'Done (sheet rule)', value: 'sheet' },
-                { label: 'Done (DoD)', value: 'dod' },
+                { label: 'Delivered (DoD)', value: 'dod' },
               ]}
             />
             <Button icon={<DownloadOutlined />} onClick={exportVelocity}>
@@ -531,8 +531,9 @@ export default function MetricsClient({
             description={
               <>
                 The spreadsheet rule counts a story as Done whenever no carry-over was recorded
-                against it, whatever its state says. Switch to <Text code>Done (DoD)</Text> to count
-                only stories that actually reached a done state — the difference is{' '}
+                against it, whatever its state says. Switch to <Text code>Delivered (DoD)</Text> to
+                count only what reached a done state, net of anything that spilled — the difference
+                is{' '}
                 {velocity
                   .filter((v) => v.unverified_done_points > 0)
                   .map((v) => `${v.sprint_name}: ${num(v.unverified_done_points)} SP`)

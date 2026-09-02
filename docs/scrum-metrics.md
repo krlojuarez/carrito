@@ -15,14 +15,14 @@ and verified by [`supabase/tests/scrum_metrics_test.sql`](../supabase/tests/scru
 |---|---|---|
 | `Velocity!D` Comittment | "sum of SP that were committed to the sprint" | `v_sprint_velocity.committed_points` |
 | `Velocity!E` Unplanned | "SP added to the ongoing sprint (Production Support)" | `.unplanned_points` |
-| `Velocity!F` Done | "SP from fully done tickets according the DoD" | `.done_points` (sheet rule) · `.done_points_strict` (actual DoD) |
+| `Velocity!F` Done | "SP from fully done tickets according the DoD" | `.done_points` (sheet rule) · `.delivered_points` (actual DoD) |
 | `Velocity!G` Done Percentage | Done ÷ Commitment | `.done_pct` |
 | `Velocity!H` Velocity AVG | "Average speed considering Done SP per sprint" | `.velocity_avg_points` (running mean) |
 | `Velocity!I` Total Sprint SP | "committed and adhered (Scope Creep)" | `.total_points` |
 | `Velocity!J` Carry Over SP | "SP that spill into the following sprint" | `.carry_over_points` |
 | `Velocity!K` Carry Over % | Carry-over ÷ Commitment | `.carry_over_pct` |
 | `Velocity!L` Capacity SP | Total − Carry-over | `.capacity_points` |
-| `Velocity!M` Workday % | "Percentage of the workdays that were not Holidays or PTOs" | `.workday_pct` |
+| `Velocity!M` Workday % | "Percentage of the workdays that were not Holidays or PTOs" | `.workday_pct` — net ÷ **nominal** days, so days lost to someone joining or leaving mid-sprint are visible rather than cancelling out of both sides |
 | `Velocity!N` User Stories Done | "How many Stories where done in the sprint" — never filled in | `.stories_done` (filled in automatically) |
 | `Capacity!A` Working days | Working weekdays in the sprint | `v_member_sprint_capacity.gross_days` |
 | `Capacity!B` Capcity | FTE factor (1 or 0.5) | `members.capacity_factor` |
@@ -197,6 +197,7 @@ order by start_date;
 | Copy unfinished stories into the next sprint's tab | `close_sprint(sprint_id, next_sprint_id)` |
 | Type Holidays / PTO per member per sprint | Computed from `public.holidays` + `public.pto` by `member_sprint_days()` |
 | Maintain the country holiday table by hand | **Calendar → Sync public holidays** (`POST /api/holidays/sync`) |
+| Work out who a company holiday actually applies to | A holiday with **no country** applies to everyone; one with a country applies to that country's members; one with a region applies only to members explicitly in that region |
 | Type each member's Completed and Committed points | Derived from the story rows, keyed on the ADO **Developer** column |
 | Re-point the chart ranges at the new tab | The `/metrics` page reads the views |
 | Eyeball the tab for rows that break the numbers | `v_sprint_data_quality` |
@@ -222,7 +223,21 @@ transaction:
   `user_stories.committed_points`. On the real Sprint 17 sheet this happened five
   times, for 25 SP.
 - **Exclusions.** `excluded_from_metrics` + `exclusion_reason` replace the
-  workbook comment "13 points not to be considered in metrics".
+  workbook comment "13 points not to be considered in metrics". **Admin only** —
+  excluding a story removes its points from every total.
+
+### Who can change what
+
+Team members may edit carry-over, and only on **their own** stories in an **open**
+sprint. That is deliberately narrow: `carry_over_points` drives `done_points`, so
+anyone able to set it across a sprint could zero out that sprint's delivery and
+drag the running velocity average with it. Everything else — commitment
+overrides, exclusions, points, state — is admin-only, and a closed sprint is not
+editable at all until an admin reopens it.
+
+> If you ever re-run `0001_init.sql`, re-run `0003_scrum_metrics.sql` after it.
+> 0001 ends by recreating `guard_story_member_update()` in its original, laxer
+> form.
 
 ---
 
@@ -236,10 +251,20 @@ tickets according the DoD".
 Both are exposed, and the difference is reported:
 
 - `done_points` — the sheet's rule, so historical numbers reconcile.
-- `done_points_strict` — only stories in a done state.
+- `delivered_points` — points that reached a done state, **net of anything that
+  spilled**. This is stricter than the sheet in one direction and more generous in
+  the other: it refuses to credit unfinished work, and it stops throwing away a
+  finished story's whole estimate because one point carried over. (On Sprint 15
+  the sheet reports 77 and this reports 80, because two stories were *Done* with
+  one point outstanding each and the sheet discarded their full 5.)
 - `unverified_done_points` — the gap. On the sample data, Sprint 17 shows **135 vs
   107**: 28 story points counted as delivered while five work items were still
   *In Progress* and one was *Removed*.
+
+A sprint that is neither closed nor past its end date is flagged
+`is_provisional`. Nothing in it has been marked as spilled yet, so the sheet's
+Done rule credits the whole sprint — fine as a live figure, wrong as history.
+Provisional sprints are kept out of the running velocity average.
 
 The `/metrics` page has a toggle, and the data-quality view lists the exact rows
 (`DONE_WITHOUT_DOD`), so the gap is a to-do list rather than a silent overstatement.

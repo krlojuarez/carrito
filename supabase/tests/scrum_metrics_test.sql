@@ -17,12 +17,14 @@
 --   M2  no country (so no public holidays), 2 days PTO (Mar 5-6).
 --        -> gross 10, holidays 0, pto 2, net 8
 --   M3  LEFT the team mid-sprint: is_active = false, end_date = Fri 2026-03-06.
---       Departing must not erase the days they worked.
---        -> gross 5 (Mar 2-6), holidays 0, pto 0, net 5
+--       Departing must not erase the days they worked, and the days after they
+--       left must stay VISIBLE in the denominator — losing people is the single
+--       largest capacity event a team has, so Workday % has to move.
+--        -> gross 10 (nominal), tenure 5, holidays 0, pto 0, net 5
 --   M4  is_active = false with NO end date — someone who was never really on
---       the team. Contributes nothing.
+--       the team. Contributes nothing at all.
 --        -> gross 0
---   team totals: gross 25, net 22  -> workday_pct = 22/25 = 0.88
+--   team totals: gross 30, net 22  -> workday_pct = 22/30 = 0.7333
 --
 --   S1 created before the sprint,  5 pts, Done,        carry 0
 --   S2 created DURING the sprint,  3 pts, Done,        carry 0   (scope creep)
@@ -37,7 +39,8 @@
 --   total       = 5 + 3 + 8 + 2 + 1      = 19   (S5 excluded)
 --   carry-over  = 8                      = 8
 --   done sheet  = 5 + 3 + 2 + 1          = 11   (S3 spilled -> 0)
---   done DoD    = 5 + 3 + 1              = 9    (S4 Removed is not Done)
+--   delivered   = 5 + 3 + 1              = 9    (S4 Removed is not Done;
+--                                                S3 is not in a done state)
 --   capacity SP = total - carry = 19 - 8 = 11
 --   stories_done (S1,S2,S6)              = 3
 -- ============================================================================
@@ -106,8 +109,9 @@ begin
 
   -- A member who left keeps the days they worked...
   select * into d from public.member_sprint_days(v_m3, date '2026-03-02', date '2026-03-13');
-  assert d.gross_days = 5, format('M3 gross_days: expected 5 (left on Mar 6), got %s', d.gross_days);
-  assert d.net_days   = 5, format('M3 net_days: expected 5, got %s', d.net_days);
+  assert d.gross_days  = 10, format('M3 gross_days: expected 10 (nominal), got %s', d.gross_days);
+  assert d.tenure_days = 5,  format('M3 tenure_days: expected 5 (left Mar 6), got %s', d.tenure_days);
+  assert d.net_days    = 5,  format('M3 net_days: expected 5, got %s', d.net_days);
 
   -- ...but a member deactivated with no end date contributes nothing.
   select * into d from public.member_sprint_days(v_m4, date '2026-03-02', date '2026-03-13');
@@ -120,7 +124,7 @@ begin
   assert r.total_points       = 19, format('total_points: expected 19, got %s', r.total_points);
   assert r.carry_over_points  = 8,  format('carry_over_points: expected 8, got %s', r.carry_over_points);
   assert r.done_points        = 11, format('done_points: expected 11, got %s', r.done_points);
-  assert r.done_points_strict = 9,  format('done_points_strict: expected 9, got %s', r.done_points_strict);
+  assert r.delivered_points   = 9,  format('delivered_points: expected 9, got %s', r.delivered_points);
   assert r.unverified_done_points = 2,
     format('unverified_done_points: expected 2, got %s', r.unverified_done_points);
   assert r.capacity_points    = 11, format('capacity_points: expected 11, got %s', r.capacity_points);
@@ -131,11 +135,14 @@ begin
     format('done_pct: expected %s, got %s', round(11.0/19,4), round(r.done_pct,4));
   assert round(r.carry_over_pct, 4) = round(8.0/19, 4),
     format('carry_over_pct: expected %s, got %s', round(8.0/19,4), round(r.carry_over_pct,4));
-  assert r.gross_working_days = 25, format('gross_working_days: expected 25, got %s', r.gross_working_days);
-  assert r.net_working_days   = 22, format('net_working_days: expected 22, got %s', r.net_working_days);
-  assert round(r.workday_pct, 4) = 0.88,
-    format('workday_pct: expected 0.88, got %s', round(r.workday_pct, 4));
-  -- Only one sprint on this team, so the running average equals this sprint's Done.
+  assert r.gross_working_days  = 30, format('gross_working_days: expected 30, got %s', r.gross_working_days);
+  assert r.tenure_working_days = 25, format('tenure_working_days: expected 25, got %s', r.tenure_working_days);
+  assert r.net_working_days    = 22, format('net_working_days: expected 22, got %s', r.net_working_days);
+  assert round(r.workday_pct, 4) = round(22.0/30, 4),
+    format('workday_pct: expected %s, got %s', round(22.0/30,4), round(r.workday_pct, 4));
+  -- The sprint ended in the past, so it counts as finished and the running
+  -- average (one sprint) equals its Done figure.
+  assert r.is_provisional = false, 'a sprint that ended in the past is not provisional';
   assert r.velocity_avg_points = 11,
     format('velocity_avg_points: expected 11, got %s', r.velocity_avg_points);
 
