@@ -110,5 +110,9 @@ still needs a person. Two things it is worth knowing up front:
 
 - **Import the ADO `Created Date` column.** Without it, Carrito cannot tell planned work
   from work that arrived mid‑sprint, and Commitment/Unplanned will not split.
+- **Bring your history across first.** `node scripts/import-workbook.mjs Scrum_Metrics.xlsx`
+  reads the workbook, prints SQL plus a parity report against the sheet's own cached values,
+  and writes nothing. The velocity average is a running mean anchored at your first sprint,
+  so an empty history makes it permanently wrong.
 - **Sync the holiday table** (Calendar → *Sync public holidays*) after adding members, so the
   SQL views and the TypeScript capacity engine read the same calendar.

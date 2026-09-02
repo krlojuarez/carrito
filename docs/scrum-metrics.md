@@ -186,6 +186,46 @@ order by start_date;
 
 ---
 
+## 2.8 Bringing the existing workbook across
+
+`velocity_avg_points` is the workbook's `AVERAGE($F$27:F{n})` — a running mean
+anchored at your first sprint. Start the app with an empty history and that
+series is permanently wrong and chart 1 shows a single bar on day one. Import the
+history first:
+
+```bash
+npm install                       # exceljs is a devDependency
+node scripts/import-workbook.mjs Scrum_Metrics.xlsx > backfill.sql
+```
+
+It prints SQL on stdout and a **parity report** on stderr diffing every Velocity
+figure it derived against the value the workbook itself had cached. Read the
+report, read the SQL, then run it in Supabase → SQL Editor. Nothing is written
+until you do, and every insert is `ON CONFLICT DO NOTHING`, so it is safe twice.
+
+On the sample workbook all three completed sprints reconcile exactly:
+
+| | Commitment | Unplanned | Done | Total | Carry-over | Capacity SP |
+|---|---|---|---|---|---|---|
+| Sprint 15 | 47 | 35 | 77 | 82 | 2 | 80 |
+| Sprint 16 | 62 | 12 | 69 | 74 | 2 | 72 |
+| Sprint 17 | 143 | 32 | 135 | 162 | 18 | 144 |
+
+It reads columns by **header name**, never position, because the tabs are not
+uniform — one carries two stacked header rows and the planning tab has Commited
+and Scope Creep Amount the other way round. It also distinguishes a hand-typed
+value in the Commited column from a copied formula, so the five real overrides on
+the Sprint 17 tab come across as `committed_points` and the ~90 formula cells do
+not.
+
+**The one thing it cannot bring across is PTO.** The Capacity sheet records a
+*count* of days per person per sprint, never which days. Those statements are
+emitted commented out with the count stated; until you fill in real dates,
+historical Workday % reads high by exactly those days. Everything derived from
+the work items is exact.
+
+---
+
 ## 3. Automations
 
 | Manual step in the workbook | Now |
