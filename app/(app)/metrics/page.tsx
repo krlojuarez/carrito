@@ -63,6 +63,7 @@ export default async function MetricsPage() {
       capacityProfile={bundle.capacityProfile}
       forecast={bundle.forecast}
       issues={bundle.issues}
+      categories={bundle.categories}
     />
   );
 }

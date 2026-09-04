@@ -153,6 +153,22 @@ export const DATA_QUALITY_SEVERITY: Record<DataQualityCode, 'error' | 'warning'>
   NO_OWNER: 'warning',
 };
 
+/** One tag's points within one sprint (v_story_category_points). */
+export interface CategoryPoints {
+  team_id: UUID;
+  sprint_id: UUID;
+  sprint_name: string;
+  sprint_start: ISODate;
+  category: string;
+  category_label: string;
+  story_count: number;
+  committed_points: number;
+  done_points: number;
+  delivered_points: number;
+  total_points: number;
+  carry_over_points: number;
+}
+
 export interface CloseSprintResult {
   sprint_id: UUID;
   next_sprint_id: UUID | null;

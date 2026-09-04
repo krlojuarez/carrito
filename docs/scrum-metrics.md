@@ -186,6 +186,58 @@ order by start_date;
 
 ---
 
+### 2.6b Capacity by category (feature / tag)
+
+"How many points did we spend on a feature across these sprints?" Story tags are
+the categories, so `DigitSec`, `Trust360`, `Admin`, `Dev`, `ProdDeploy` — whatever
+you tag — become slices. `v_story_category_points` gives points per tag per sprint;
+the **Capacity by category** card on `/metrics` totals it across a chosen set of
+sprints, with a Done / Committed / Total toggle.
+
+```sql
+select category_label as category,
+       sum(story_count)      as stories,
+       sum(committed_points) as committed,
+       sum(done_points)      as done,
+       sum(total_points)     as total
+from public.v_story_category_points
+where team_id = '<your-team-uuid>'
+  -- and sprint_name in ('Sprint 15','Sprint 16')   -- optional: a subset
+group by category_label
+order by done desc;
+```
+
+A story with several tags counts under **each** of them, so category totals can
+add up to more than the sprint itself — that's intended for "how much did we spend
+on X". Carry-over bookkeeping tags ("carry-over 26.14", "COLS") are excluded.
+To see a feature here, tag its stories with that feature's name.
+
+## 2.7b How capacity is estimated (sprint bandwidth)
+
+Capacity is **not** derived from hours per day. Each member has a **bandwidth** —
+the story points they typically deliver in a full sprint (`members.sprint_bandwidth_points`,
+falling back to `settings.default_sprint_bandwidth_points`). A sprint's expected
+capacity for that member is:
+
+```
+expected = sprint_bandwidth_points
+         × capacity_factor            -- FTE: 1 = full time, 0.5 = half
+         × (net_days / gross_days)    -- availability: holidays + PTO + tenure
+```
+
+`net_days / gross_days` is the share of the sprint the person is actually around,
+so holidays and PTO still move the number — someone out 2 of 10 working days
+counts for 80% of their bandwidth. `v_member_sprint_capacity.expected_points`
+holds this per member, and `v_sprint_forecast.capacity_points` sums it.
+
+Bandwidth is set per member in **Admin → Team**, and `0004_capacity_bandwidth.sql`
+seeds it from measured history on first run (each member's average completed
+points across finished sprints), so you don't start from the flat default. The
+old day-rate inputs (hours/day, focus factor, points/day) are retired as capacity
+drivers — the columns remain so nothing breaks, but no view reads them.
+
+---
+
 ## 2.8 Bringing the existing workbook across
 
 `velocity_avg_points` is the workbook's `AVERAGE($F$27:F{n})` — a running mean

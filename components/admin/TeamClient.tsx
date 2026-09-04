@@ -19,6 +19,7 @@ import {
   Switch,
   Table,
   Tag,
+  Typography,
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -29,6 +30,7 @@ import { COUNTRIES, countryName } from '@/lib/data/countries';
 import type { Member, Role, Seniority, Team } from '@/lib/types/domain';
 
 const { RangePicker } = DatePicker;
+const { Text } = Typography;
 
 interface MemberFormValues {
   full_name: string;
@@ -37,10 +39,8 @@ interface MemberFormValues {
   region_code?: string;
   role_id?: string;
   seniority_id?: string;
-  hours_per_day: number;
   capacity_factor: number;
-  focus_factor?: number;
-  points_per_day?: number;
+  sprint_bandwidth_points?: number;
   min_capacity_days?: number;
   range?: [dayjs.Dayjs | null, dayjs.Dayjs | null];
   is_active: boolean;
@@ -87,7 +87,7 @@ export default function TeamClient({
   function openAdd() {
     setEditing(null);
     memberForm.resetFields();
-    memberForm.setFieldsValue({ hours_per_day: 8, capacity_factor: 1, is_active: true });
+    memberForm.setFieldsValue({ capacity_factor: 1, is_active: true });
     setDrawerOpen(true);
   }
 
@@ -100,10 +100,8 @@ export default function TeamClient({
       region_code: m.region_code ?? undefined,
       role_id: m.role_id ?? undefined,
       seniority_id: m.seniority_id ?? undefined,
-      hours_per_day: m.hours_per_day,
       capacity_factor: m.capacity_factor ?? 1,
-      focus_factor: m.focus_factor ?? undefined,
-      points_per_day: m.points_per_day ?? undefined,
+      sprint_bandwidth_points: m.sprint_bandwidth_points ?? undefined,
       min_capacity_days: m.min_capacity_days ?? undefined,
       range: [
         m.start_date ? dayjs(m.start_date) : null,
@@ -126,10 +124,8 @@ export default function TeamClient({
       region_code: values.region_code ?? null,
       role_id: values.role_id ?? null,
       seniority_id: values.seniority_id ?? null,
-      hours_per_day: values.hours_per_day,
       capacity_factor: values.capacity_factor ?? 1,
-      focus_factor: values.focus_factor ?? null,
-      points_per_day: values.points_per_day ?? null,
+      sprint_bandwidth_points: values.sprint_bandwidth_points ?? null,
       min_capacity_days: values.min_capacity_days ?? null,
       start_date: values.range?.[0] ? values.range[0].format('YYYY-MM-DD') : null,
       end_date: values.range?.[1] ? values.range[1].format('YYYY-MM-DD') : null,
@@ -210,7 +206,12 @@ export default function TeamClient({
       key: 'seniority',
       render: (_, m) => m.seniority?.name ?? '—',
     },
-    { title: 'Hours/day', dataIndex: 'hours_per_day', key: 'hours_per_day' },
+    {
+      title: 'Bandwidth',
+      dataIndex: 'sprint_bandwidth_points',
+      key: 'sprint_bandwidth_points',
+      render: (v: number | null) => (v == null ? <Text type="secondary">team default</Text> : `${v} SP`),
+    },
     {
       title: 'FTE',
       dataIndex: 'capacity_factor',
@@ -288,7 +289,7 @@ export default function TeamClient({
           layout="vertical"
           onFinish={onSaveMember}
           requiredMark={false}
-          initialValues={{ hours_per_day: 8, capacity_factor: 1, is_active: true }}
+          initialValues={{ capacity_factor: 1, is_active: true }}
         >
           <Form.Item name="full_name" label="Full name" rules={[{ required: true }]}>
             <Input placeholder="Jane Doe" />
@@ -334,22 +335,19 @@ export default function TeamClient({
           </Row>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="hours_per_day" label="Hours / day" rules={[{ required: true }]}>
-                <InputNumber min={0} max={24} step={0.5} style={{ width: '100%' }} />
+              <Form.Item
+                name="sprint_bandwidth_points"
+                label="Sprint bandwidth (SP)"
+                tooltip="Story points this person typically delivers in a full sprint. Leave blank to use the team default. Holidays and PTO reduce it automatically."
+              >
+                <InputNumber min={0} step={1} style={{ width: '100%' }} placeholder="team default" />
               </Form.Item>
             </Col>
-            <Col span={12}>
-              <Form.Item name="focus_factor" label="Focus factor" tooltip="0 to 1 (optional)">
-                <InputNumber min={0} max={1} step={0.05} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
             <Col span={12}>
               <Form.Item
                 name="capacity_factor"
                 label="FTE"
-                tooltip="1 = full time, 0.5 = half time. Scales this person's share of forecast capacity."
+                tooltip="1 = full time, 0.5 = half time. Scales this person's bandwidth."
                 rules={[{ required: true }]}
               >
                 <InputNumber min={0.05} max={1} step={0.05} style={{ width: '100%' }} />
@@ -358,12 +356,11 @@ export default function TeamClient({
           </Row>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="points_per_day" label="Points / day">
-                <InputNumber min={0} step={0.1} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="min_capacity_days" label="Min capacity days">
+              <Form.Item
+                name="min_capacity_days"
+                label="Min working days"
+                tooltip="Optional. Warns when a member's available working days in a sprint fall below this."
+              >
                 <InputNumber min={0} step={0.5} style={{ width: '100%' }} />
               </Form.Item>
             </Col>

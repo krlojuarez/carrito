@@ -11,13 +11,6 @@ import type {
   TeamCapacity,
 } from './types';
 
-function resolvePpd(member: CapacityMember, params: CapacityParams): number {
-  if (member.pointsPerDay != null) return member.pointsPerDay;
-  const v = params.velocity;
-  if (v && v.avgPersonDaysPerSprint > 0) return v.avgPointsPerSprint / v.avgPersonDaysPerSprint;
-  return params.defaultPointsPerDay;
-}
-
 /**
  * Per-member capacity in a single pass over the sprint calendar.
  * Priority per day: inactive -> non-business -> holiday -> PTO -> working.
@@ -72,11 +65,15 @@ export function computeMemberCapacity(
     });
   }
 
-  const focusFactor = member.focusFactor ?? params.defaultFocusFactor;
-  const seniority = member.seniorityModifier ?? 1;
-  const availableDays = round2(net * focusFactor * seniority);
-  const pointsPerDay = resolvePpd(member, params);
-  const availablePoints = round1(availableDays * pointsPerDay);
+  // Capacity is bandwidth-driven: SP per full sprint, scaled by FTE and by the
+  // fraction of the sprint the member was actually available (net / gross).
+  const availableDays = round2(net);
+  const availability = gross > 0 ? net / gross : 0;
+  const fte = member.capacityFactor ?? 1;
+  const bandwidth = member.sprintBandwidthPoints ?? params.defaultSprintBandwidthPoints;
+  const availablePoints = round1(bandwidth * fte * availability);
+  const pointsPerDay = availableDays > 0 ? round2(availablePoints / availableDays) : 0;
+  const focusFactor = fte;
   const min = member.minCapacityDays ?? null;
 
   return {
@@ -113,7 +110,7 @@ export function computeTeamCapacity(
     members: rows,
     totalAvailableDays: totalDays,
     totalAvailablePoints: totalPts,
-    pointsBasis: params.velocity ? 'velocity' : 'points-per-day',
+    pointsBasis: 'bandwidth',
     effectivePointsPerDay: totalDays > 0 ? round2(totalPts / totalDays) : 0,
   };
 }

@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import type {
+  CategoryPoints,
   DataQualityIssue,
   MemberCapacityProfile,
   MemberSprintCapacity,
@@ -61,6 +62,17 @@ export async function getSprintForecast(teamId: string): Promise<SprintForecast[
   return (data as SprintForecast[]) ?? [];
 }
 
+export async function getCategoryPoints(teamId: string): Promise<CategoryPoints[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('v_story_category_points')
+    .select('*')
+    .eq('team_id', teamId)
+    .order('sprint_start', { ascending: true });
+  if (error) return [];
+  return (data as CategoryPoints[]) ?? [];
+}
+
 export async function getDataQualityIssues(
   teamId: string,
   sprintId?: string,
@@ -87,6 +99,7 @@ export interface MetricsBundle {
   capacityProfile: MemberCapacityProfile[];
   forecast: SprintForecast[];
   issues: DataQualityIssue[];
+  categories: CategoryPoints[];
 }
 
 const EMPTY: MetricsBundle = {
@@ -96,17 +109,19 @@ const EMPTY: MetricsBundle = {
   capacityProfile: [],
   forecast: [],
   issues: [],
+  categories: [],
 };
 
 export async function getMetricsBundle(teamId: string): Promise<MetricsBundle> {
   if (!(await metricsAvailable())) return EMPTY;
 
-  const [velocity, memberCapacity, capacityProfile, forecast, issues] = await Promise.all([
+  const [velocity, memberCapacity, capacityProfile, forecast, issues, categories] = await Promise.all([
     getSprintVelocity(teamId),
     getMemberSprintCapacity(teamId),
     getMemberCapacityProfile(teamId),
     getSprintForecast(teamId),
     getDataQualityIssues(teamId),
+    getCategoryPoints(teamId),
   ]);
-  return { available: true, velocity, memberCapacity, capacityProfile, forecast, issues };
+  return { available: true, velocity, memberCapacity, capacityProfile, forecast, issues, categories };
 }

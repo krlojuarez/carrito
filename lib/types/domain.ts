@@ -41,6 +41,8 @@ export interface Member {
   hours_per_day: number;
   /** FTE factor — 1 = full time, 0.5 = half time (workbook Capacity!B). */
   capacity_factor: number;
+  /** Story points this member delivers in a full sprint. */
+  sprint_bandwidth_points: number | null;
   focus_factor: number | null;
   points_per_day: number | null;
   min_capacity_days: number | null;
@@ -92,6 +94,7 @@ export interface Settings {
   team_id: UUID | null;
   default_focus_factor: number;
   points_per_day: number;
+  default_sprint_bandwidth_points: number;
   min_capacity_per_member: number;
   default_sprint_length_days: number;
   working_days_per_week: number;

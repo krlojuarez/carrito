@@ -26,8 +26,10 @@ import PageHeader from '@/components/common/PageHeader';
 import { Column, DualAxes } from '@/components/charts';
 import { downloadCsv } from '@/lib/ado/export';
 import { SERIES_ORDER, VIZ_LIGHT, VIZ_STATUS, colorForSeries } from '@/lib/theme/vizPalette';
+import CategoryAnalytics from '@/components/metrics/CategoryAnalytics';
 import { DATA_QUALITY_SEVERITY } from '@/lib/metrics/types';
 import type {
+  CategoryPoints,
   DataQualityIssue,
   MemberCapacityProfile,
   MemberSprintCapacity,
@@ -52,6 +54,7 @@ export default function MetricsClient({
   capacityProfile,
   forecast,
   issues,
+  categories,
 }: {
   teamName: string;
   velocity: SprintVelocity[];
@@ -59,6 +62,7 @@ export default function MetricsClient({
   capacityProfile: MemberCapacityProfile[];
   forecast: SprintForecast[];
   issues: DataQualityIssue[];
+  categories: CategoryPoints[];
 }) {
   const { message } = App.useApp();
   const [doneBasis, setDoneBasis] = useState<DoneBasis>('sheet');
@@ -574,6 +578,11 @@ export default function MetricsClient({
           Days = working days left after both. Every number here is derived — nothing is typed in.
         </Text>
       </Card>
+
+      <CategoryAnalytics
+        rows={categories}
+        sprints={velocity.map((v) => ({ id: v.sprint_id, name: v.sprint_name }))}
+      />
     </>
   );
 }
