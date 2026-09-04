@@ -60,7 +60,8 @@ declare
 begin
   -- Make the assertions independent of whatever the live settings row says.
   update public.settings
-     set working_weekdays = '{1,2,3,4,5}', reporting_timezone = 'UTC'
+     set working_weekdays = '{1,2,3,4,5}', reporting_timezone = 'UTC',
+         default_sprint_bandwidth_points = 8
    where team_id is null;
 
   insert into public.teams (id, name) values (v_team, 'test-team-' || v_team);
@@ -93,6 +94,9 @@ begin
     (v_team, v_sprint, 4, 'S4', 'Removed',     2,   timestamptz '2026-02-25 09:00+00', 0, null, false, v_m2),
     (v_team, v_sprint, 5, 'S5', 'New',         100, timestamptz '2026-02-25 09:00+00', 0, null, true,  v_m2),
     (v_team, v_sprint, 6, 'S6', 'Done',        1,   timestamptz '2026-03-06 09:00+00', 0, 4,    false, v_m1);
+
+  update public.members set sprint_bandwidth_points = 10 where id = v_m1;  -- override
+  -- M2, M3, M4 have no bandwidth -> team default 8.
 
   -- ---- member_sprint_days: holiday wins over PTO on the same day ----------
   select * into d from public.member_sprint_days(v_m1, date '2026-03-02', date '2026-03-13');
@@ -166,6 +170,31 @@ begin
    where sprint_id = v_sprint and member_id = v_m1;
   assert r.completed_points = 9, format('M1 completed_points: expected 9, got %s', r.completed_points);
   assert r.points_per_day   = 1.0, format('M1 points_per_day: expected 1.0, got %s', r.points_per_day);
+
+  -- ---- v_member_sprint_capacity: bandwidth x FTE x availability -----------
+  --   M1: bandwidth 10, fte 1, availability 9/10 = 0.9  -> 9.0
+  --   M2: default 8,    fte 1, availability 8/10 = 0.8  -> 6.4
+  --   M3: default 8,    fte 1, availability 5/10 = 0.5  -> 4.0
+  --   M4: gross 0 -> availability 0                     -> 0
+  select * into r from public.v_member_sprint_capacity
+   where sprint_id = v_sprint and member_id = v_m1;
+  assert r.bandwidth_points = 10, format('M1 bandwidth: expected 10, got %s', r.bandwidth_points);
+  assert r.expected_points  = 9.0, format('M1 expected_points: expected 9.0, got %s', r.expected_points);
+  select * into r from public.v_member_sprint_capacity
+   where sprint_id = v_sprint and member_id = v_m2;
+  assert r.bandwidth_points = 8,   format('M2 bandwidth: expected 8 (default), got %s', r.bandwidth_points);
+  assert r.expected_points  = 6.4, format('M2 expected_points: expected 6.4, got %s', r.expected_points);
+  select * into r from public.v_member_sprint_capacity
+   where sprint_id = v_sprint and member_id = v_m3;
+  assert r.expected_points  = 4.0, format('M3 expected_points: expected 4.0, got %s', r.expected_points);
+
+  -- ---- v_sprint_forecast: capacity = sum(expected) = 9.0+6.4+4.0 = 19.4 ----
+  select * into r from public.v_sprint_forecast where sprint_id = v_sprint;
+  assert r.capacity_points       = 19.4, format('forecast capacity: expected 19.4, got %s', r.capacity_points);
+  assert r.available_person_days = 22,   format('available_person_days: expected 22, got %s', r.available_person_days);
+  assert r.committed_points      = 19,   format('forecast committed: expected 19, got %s', r.committed_points);
+  assert r.carry_over_points     = 8,    format('forecast carry: expected 8, got %s', r.carry_over_points);
+  assert r.free_points           = -7.6, format('forecast free: expected -7.6, got %s', r.free_points);
 
   -- ---- v_sprint_data_quality: the review checklist ------------------------
   assert exists (select 1 from public.v_sprint_data_quality

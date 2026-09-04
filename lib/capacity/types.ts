@@ -42,11 +42,15 @@ export interface CapacityMember {
   region?: string;
   startDate?: LocalDate;
   endDate?: LocalDate;
-  focusFactor?: number; // overrides team default
-  /** Seniority multiplier applied on top of focus factor (default 1). */
+  focusFactor?: number; // legacy day-rate input, no longer drives capacity
+  /** Seniority multiplier — legacy, no longer drives capacity. */
   seniorityModifier?: number;
-  pointsPerDay?: number; // overrides team default
+  pointsPerDay?: number; // legacy day-rate input, no longer drives capacity
   minCapacityDays?: number | null;
+  /** FTE: 1 = full time, 0.5 = half time. */
+  capacityFactor?: number;
+  /** Story points this member delivers in a full sprint (overrides team default). */
+  sprintBandwidthPoints?: number | null;
 }
 
 export type Severity = 'info' | 'warning' | 'critical';
@@ -68,6 +72,8 @@ export interface CapacityParams {
   businessDays: BusinessWeekday[];
   defaultFocusFactor: number;
   defaultPointsPerDay: number;
+  /** Team fallback bandwidth (SP/sprint) for a member with none of their own. */
+  defaultSprintBandwidthPoints: number;
   velocity?: {
     avgPointsPerSprint: number;
     avgPersonDaysPerSprint: number;
@@ -105,7 +111,7 @@ export interface TeamCapacity {
   members: MemberCapacity[];
   totalAvailableDays: number;
   totalAvailablePoints: number;
-  pointsBasis: 'velocity' | 'points-per-day';
+  pointsBasis: 'bandwidth' | 'velocity' | 'points-per-day';
   effectivePointsPerDay: number;
 }
 
@@ -145,6 +151,7 @@ export const DEFAULT_PARAMS: CapacityParams = {
   businessDays: [1, 2, 3, 4, 5],
   defaultFocusFactor: 0.8,
   defaultPointsPerDay: 1.0,
+  defaultSprintBandwidthPoints: 8,
   velocity: undefined,
   warnings: DEFAULT_WARNING_PARAMS,
 };

@@ -33,6 +33,7 @@ export function settingsToParams(s: DbSettings | null): CapacityParams {
     businessDays: bd,
     defaultFocusFactor: s.default_focus_factor ?? 0.8,
     defaultPointsPerDay: s.points_per_day ?? 1.0,
+    defaultSprintBandwidthPoints: s.default_sprint_bandwidth_points ?? 8,
     velocity,
     warnings: {
       capacityDropPct: { warning: s.warn_capacity_drop ?? 0.15, critical: s.crit_capacity_drop ?? 0.3 },
@@ -58,6 +59,8 @@ export function memberToEngine(m: DbMember, settings: DbSettings | null): Capaci
     seniorityModifier,
     pointsPerDay: m.points_per_day ?? undefined,
     minCapacityDays: m.min_capacity_days ?? settings?.min_capacity_per_member ?? null,
+    capacityFactor: m.capacity_factor ?? 1,
+    sprintBandwidthPoints: m.sprint_bandwidth_points ?? undefined,
   };
 }
 
