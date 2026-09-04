@@ -50,13 +50,16 @@ Run the migrations once, in order, in **Supabase → SQL Editor**:
 supabase/migrations/0001_init.sql
 supabase/migrations/0002_optional_country.sql
 supabase/migrations/0003_scrum_metrics.sql
+supabase/migrations/0004_capacity_bandwidth.sql
+supabase/migrations/0005_category_analytics.sql
 ```
 
 `0001` creates all tables, row‑level‑security policies, triggers (carry‑over detection,
 updated_at), a public `branding` storage bucket, and seed data (default roles, seniorities,
 settings). `0002` makes `members.country_code` optional. `0003` adds the Scrum Metrics model —
-scope‑creep and carry‑over columns, the velocity/capacity views, and the sprint‑close automation.
-All three are idempotent.
+scope‑creep and carry‑over columns, the velocity/capacity views, and the sprint‑close automation. `0004`
+switches capacity estimation to a per‑sprint bandwidth per member; `0005` adds the capacity‑by‑category view.
+All are idempotent.
 
 Verify the metrics model with:
 

@@ -186,6 +186,32 @@ order by start_date;
 
 ---
 
+### 2.6b Capacity by category (feature / tag)
+
+"How many points did we spend on a feature across these sprints?" Story tags are
+the categories, so `DigitSec`, `Trust360`, `Admin`, `Dev`, `ProdDeploy` — whatever
+you tag — become slices. `v_story_category_points` gives points per tag per sprint;
+the **Capacity by category** card on `/metrics` totals it across a chosen set of
+sprints, with a Done / Committed / Total toggle.
+
+```sql
+select category_label as category,
+       sum(story_count)      as stories,
+       sum(committed_points) as committed,
+       sum(done_points)      as done,
+       sum(total_points)     as total
+from public.v_story_category_points
+where team_id = '<your-team-uuid>'
+  -- and sprint_name in ('Sprint 15','Sprint 16')   -- optional: a subset
+group by category_label
+order by done desc;
+```
+
+A story with several tags counts under **each** of them, so category totals can
+add up to more than the sprint itself — that's intended for "how much did we spend
+on X". Carry-over bookkeeping tags ("carry-over 26.14", "COLS") are excluded.
+To see a feature here, tag its stories with that feature's name.
+
 ## 2.7b How capacity is estimated (sprint bandwidth)
 
 Capacity is **not** derived from hours per day. Each member has a **bandwidth** —
